@@ -1,0 +1,27 @@
+{
+  "name": "paperpilot",
+  "version": "0.6.1",
+  "description": "Zotero 插件：为单篇论文提供可回查原文的快速总结与阅读导航",
+  "author": "Rhine",
+  "license": "MIT",
+  "private": true,
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "node test/all.mjs",
+    "build": "node build.mjs",
+    "watch": "node build.mjs --watch",
+    "xpi": "node package-xpi.mjs",
+    "verify": "node tools/python.mjs verify-xpi.py",
+    "release": "npm test && npm run xpi && npm run verify"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2",
+    "typescript": "7.0.2"
+  },
+  "engines": {
+    "node": ">=22.22.0"
+  },
+  "allowScripts": {
+    "esbuild@0.28.2": true
+  }
+}

@@ -1,0 +1,87 @@
+<div xmlns="http://www.w3.org/1999/xhtml" id="paperpilot-settings-root">
+<style>
+      #paperpilot-settings-root { font: 13px/1.6 -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif; padding: 16px; color: #222; }
+      #paperpilot-settings-root h2 { font-size: 14px; margin: 18px 0 8px; padding-bottom: 4px; border-bottom: 1px solid #e3e3e3; }
+      #paperpilot-settings-root h2:first-child { margin-top: 0; }
+      #paperpilot-settings-root fieldset { border: 1px solid #e3e3e3; border-radius: 4px; padding: 10px 12px; margin: 0 0 12px; }
+      #paperpilot-settings-root .row { display: flex; align-items: center; margin: 6px 0; }
+      #paperpilot-settings-root .row label { flex: 0 0 130px; color: #555; }
+      #paperpilot-settings-root .row input[type="text"], .row input[type="password"], .row select { flex: 1; padding: 4px 6px; border: 1px solid #ccc; border-radius: 3px; }
+      #paperpilot-settings-root .row input[type="number"] { width: 100px; padding: 4px 6px; border: 1px solid #ccc; border-radius: 3px; }
+      #paperpilot-settings-root .row input[type="checkbox"] { width: auto; }
+      #paperpilot-settings-root .hint { color: #888; font-size: 11px; margin: 2px 0 0 130px; }
+      #paperpilot-settings-root button { padding: 4px 12px; margin-right: 8px; border: 1px solid #bbb; background: #f6f6f6; border-radius: 3px; cursor: pointer; }
+      #paperpilot-settings-root button:hover { background: #ececec; }
+      #pp-status { margin-top: 10px; font-size: 12px; min-height: 18px; color: #555; }
+      #paperpilot-settings-root .warn { background: #fffbe6; border: 1px solid #ffe58f; padding: 8px 10px; border-radius: 3px; color: #8a6d00; font-size: 12px; margin-bottom: 12px; }
+    </style>
+    <div class="warn">
+      数据说明：PaperPilot 仅把你<strong>选定论文的正文文本</strong>发送到你在此配置的模型服务；不会发送你的笔记、其他文献或账号信息。使用本地模型（Ollama 等）时请求不出本机。
+    </div>
+
+    <h2>模型服务</h2>
+    <fieldset>
+      <div class="row">
+        <label for="pp-endpoint">API 端点</label>
+        <input type="text" id="pp-endpoint" placeholder="https://api.openai.com/v1/chat/completions" />
+      </div>
+      <div class="hint">OpenAI 兼容接口即可。Ollama 示例：http://localhost:11434/v1/chat/completions</div>
+
+      <div class="row">
+        <label for="pp-apiKey">API 密钥</label>
+        <input type="password" id="pp-apiKey" placeholder="sk-..." />
+      </div>
+      <div class="hint">密钥保存在本机 Zotero 配置中，不会写入笔记或同步内容。</div>
+
+      <div class="row">
+        <label for="pp-model">模型</label>
+        <input type="text" id="pp-model" placeholder="gpt-4o-mini" />
+      </div>
+      <div class="hint">推荐低成本模型：gpt-4o-mini、deepseek-chat、qwen-plus 等。</div>
+    </fieldset>
+
+    <h2>输出与行为</h2>
+    <fieldset>
+      <div class="row">
+        <label for="pp-language">语言</label>
+        <select id="pp-language">
+          <option value="zh">简体中文</option>
+          <option value="en">English</option>
+        </select>
+      </div>
+      <div class="row">
+        <label for="pp-highlights">关注点条数</label>
+        <input type="number" id="pp-highlights" min="3" max="10" />
+      </div>
+      <div class="row">
+        <label for="pp-maxchars">正文最大字符</label>
+        <input type="number" id="pp-maxchars" min="6000" max="120000" step="1000" />
+      </div>
+      <div class="hint">超长论文会被截断（保留开头与结尾），结果中会给出提示。</div>
+      <div class="row">
+        <label for="pp-timeout">超时（秒）</label>
+        <input type="number" id="pp-timeout" min="10" max="600" />
+      </div>
+      <div class="row">
+        <label for="pp-auto">自动分析</label>
+        <input type="checkbox" id="pp-auto" />
+      </div>
+      <div class="hint">选中条目后在条目面板自动生成总结；关闭则需手动点击生成。</div>
+    </fieldset>
+
+    <h2>维护</h2>
+    <fieldset>
+      <div class="row">
+        <label for="pp-python">增强 PDF 的 Python</label>
+        <input type="text" id="pp-python" placeholder="选择已安装 pypdf、reportlab 的 python.exe 完整路径" />
+      </div>
+      <div class="hint">仅“导出增强批注 PDF（含导图）”需要。本机已配置时无需修改；普通导出和独立导图无需 Python。</div>
+    </fieldset>
+    <fieldset>
+      <button id="pp-save">保存设置</button>
+      <button id="pp-test">测试连接</button>
+      <button id="pp-clear">清空缓存</button>
+      <div id="pp-status"></div>
+    </fieldset>
+
+</div>

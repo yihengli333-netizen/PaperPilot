@@ -1,0 +1,18 @@
+{
+  "manifest_version": 2,
+  "name": "PaperPilot",
+  "version": "0.6.1",
+  "description": "为单篇论文生成可回查原文的快速总结与阅读导航（研究问题 / 方法 / 结果 / 局限 / 建议关注点）",
+  "author": "Rhine",
+  "icons": {
+    "48": "chrome/skin/icon.svg"
+  },
+  "applications": {
+    "zotero": {
+      "id": "paperpilot@estriven.dev",
+      "strict_min_version": "7.0",
+      "strict_max_version": "10.*",
+      "update_url": "https://paperpilot.invalid/updates.json"
+    }
+  }
+}

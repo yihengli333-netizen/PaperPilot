@@ -1,0 +1,4 @@
+# Release resources must retain the exact bytes verified against the shipped XPI.
+addon/** -text
+tools/pdf_annotator.py -text
+tools/requirements.txt -text

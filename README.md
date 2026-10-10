@@ -59,12 +59,18 @@ PaperPilot 也能把**通过原文校验的重点标在 PDF 上**（彩色高亮
 
 ## 3. 配置（首次必做）
 
-**设置 → PaperPilot** 填写 API 端点、密钥、模型，点 **测试连接**。
+默认使用 **CCG API 中转站**（`https://ccg-cli.online/v1/chat/completions`），端点和模型已预设，只需填密钥：
+
+1. **设置 → PaperPilot** → 点 **获取密钥**，在 CCG API 控制台创建令牌并复制。
+2. 粘贴到 **API 密钥**，点 **测试连接**。
+3. 想换模型时点 **获取可用模型**，在模型输入框中选择该密钥可用的模型。默认 `qwen3.8-flash`。
+
+也可以改用其他 OpenAI 兼容服务，点 **恢复默认** 可切回中转站：
 
 | 项目 | 示例 |
 |---|---|
-| API 端点 | `https://api.openai.com/v1/chat/completions`（OpenAI 兼容即可） |
-| 模型 | `gpt-4o-mini` / `deepseek-chat` / `qwen-plus` |
+| API 端点 | `https://ccg-cli.online/v1/chat/completions`（默认），或其他 OpenAI 兼容接口 |
+| 模型 | `qwen3.8-flash`（默认），或该服务提供的其他模型 |
 | 本地模型 | 端点 `http://localhost:11434/v1/chat/completions`（Ollama） |
 
 ## 4. 使用流程
@@ -125,7 +131,7 @@ npm run release           # 测试 + 打包 + 核对当前版本 XPI，并生成
 
 发布时把 `dist/paperpilot-<版本>.xpi` 和 `dist/updates.json` 一起上传到 tag 为 `v<版本>` 的 Release，自动更新才会生效。
 
-测试包括 56 项纯函数、14 项集成冒烟、24 项导图/笔记测试、40 项修复回归、8 项 PDF 写入测试以及 `regressions.mjs`。测试执行 Zotero 原版注册器和标注序列化代码，并用隔离数据层验证失败保护；不向真实文库写入，也不调用模型服务。
+测试包括 56 项纯函数、14 项集成冒烟、24 项导图/笔记测试、42 项修复回归、8 项 PDF 写入测试以及 `regressions.mjs`。测试执行 Zotero 原版注册器和标注序列化代码，并用隔离数据层验证失败保护；不向真实文库写入，也不调用模型服务。
 
 项目 `.npmrc` 使用 npm 官方源，解决默认镜像的漏洞检查接口返回 404 的问题；仅允许 esbuild 0.28.2 的必要安装脚本。
 

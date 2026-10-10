@@ -94,6 +94,23 @@ export interface ParsedDoc {
   method: "paged" | "fulltext" | "fallback";
 }
 
+/** 默认模型服务：CCG API 中转站（OpenAI 兼容）。学生只需在控制台创建密钥并填入。 */
+export const RELAY = {
+  name: "CCG API",
+  endpoint: "https://ccg-cli.online/v1/chat/completions",
+  keyURL: "https://ccg-cli.online/ccg-console/",
+  model: "qwen3.8-flash",
+} as const;
+
+/** 0.7 之前的默认服务，用于把从未配置过密钥的用户迁移到默认中转站 */
+export const LEGACY_SERVICE = { endpoint: "https://api.openai.com/v1/chat/completions", model: "gpt-4o-mini" } as const;
+
+/** OpenAI 兼容的 chat/completions 端点 → 同一服务的模型列表端点；无法推断时返回 null */
+export function modelsURL(endpoint: string): string | null {
+  const url = endpoint.trim().replace(/\/+$/, "");
+  return /\/chat\/completions$/.test(url) ? url.replace(/\/chat\/completions$/, "/models") : null;
+}
+
 export const PREFS = {
   endpoint: "endpoint",
   apiKey: "apiKey",
@@ -107,9 +124,9 @@ export const PREFS = {
 } as const;
 
 export const DEFAULT_PREFS: Record<string, string | number | boolean> = {
-  [PREFS.endpoint]: "https://api.openai.com/v1/chat/completions",
+  [PREFS.endpoint]: RELAY.endpoint,
   [PREFS.apiKey]: "",
-  [PREFS.model]: "gpt-4o-mini",
+  [PREFS.model]: RELAY.model,
   [PREFS.language]: "zh",
   [PREFS.maxInputChars]: 100000,
   [PREFS.timeoutMs]: 120000,

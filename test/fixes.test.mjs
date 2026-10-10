@@ -418,3 +418,21 @@ test('legacy default limits are migrated once; customised values are kept',async
   assert.equal(store['extensions.zotero.paperpilot.maxInputChars'],30000,'a later explicit 30000 is respected');
   assert.equal(m.getConfig().highlightCount,6);
 });
+test('unconfigured users move from the old OpenAI default to the relay; configured keys are untouched',async()=>{
+  const fresh={'extensions.zotero.paperpilot.endpoint':'https://api.openai.com/v1/chat/completions','extensions.zotero.paperpilot.model':'gpt-4o-mini','extensions.zotero.paperpilot.apiKey':''};
+  const keyed={...fresh,'extensions.zotero.paperpilot.apiKey':'sk-existing'};
+  for(const store of [fresh,keyed]) {
+    const m=await load('prefs',{Prefs:{get:k=>store[k],set:(k,v)=>{store[k]=v;}}});
+    m.initPrefs();
+  }
+  assert.equal(fresh['extensions.zotero.paperpilot.endpoint'],'https://ccg-cli.online/v1/chat/completions');
+  assert.equal(fresh['extensions.zotero.paperpilot.model'],'qwen3.8-flash');
+  assert.equal(keyed['extensions.zotero.paperpilot.endpoint'],'https://api.openai.com/v1/chat/completions');
+  assert.equal(keyed['extensions.zotero.paperpilot.model'],'gpt-4o-mini');
+});
+test('model list URL is derived from the chat endpoint',async()=>{
+  const m=await load('types');
+  assert.equal(m.modelsURL('https://ccg-cli.online/v1/chat/completions'),'https://ccg-cli.online/v1/models');
+  assert.equal(m.modelsURL(' http://localhost:11434/v1/chat/completions/ '),'http://localhost:11434/v1/models');
+  assert.equal(m.modelsURL('https://example.test/custom'),null);
+});

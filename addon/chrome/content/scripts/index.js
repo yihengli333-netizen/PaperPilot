@@ -4268,6 +4268,13 @@
     return out;
   }
   var PROMPT_VERSION = 3;
+  var RELAY = {
+    name: "CCG API",
+    endpoint: "https://ccg-cli.online/v1/chat/completions",
+    keyURL: "https://ccg-cli.online/ccg-console/",
+    model: "qwen3.8-flash"
+  };
+  var LEGACY_SERVICE = { endpoint: "https://api.openai.com/v1/chat/completions", model: "gpt-4o-mini" };
   var PREFS = {
     endpoint: "endpoint",
     apiKey: "apiKey",
@@ -4280,9 +4287,9 @@
     prefsVersion: "prefsVersion"
   };
   var DEFAULT_PREFS = {
-    [PREFS.endpoint]: "https://api.openai.com/v1/chat/completions",
+    [PREFS.endpoint]: RELAY.endpoint,
     [PREFS.apiKey]: "",
-    [PREFS.model]: "gpt-4o-mini",
+    [PREFS.model]: RELAY.model,
     [PREFS.language]: "zh",
     [PREFS.maxInputChars]: 1e5,
     [PREFS.timeoutMs]: 12e4,
@@ -4296,12 +4303,18 @@
     return Zotero.Prefs.get(PREFIX + key, true);
   }
   var LEGACY_DEFAULTS = [[PREFS.maxInputChars, 3e4], [PREFS.timeoutMs, 6e4]];
-  var PREFS_VERSION = 2;
+  var PREFS_VERSION = 3;
   function initPrefs() {
     const version = Number(Zotero.Prefs.get(PREFIX + PREFS.prefsVersion, true)) || 1;
     if (version < PREFS_VERSION) {
-      for (const [key, old] of LEGACY_DEFAULTS) {
-        if (Number(Zotero.Prefs.get(PREFIX + key, true)) === old) Zotero.Prefs.set(PREFIX + key, DEFAULT_PREFS[key], true);
+      if (version < 2) {
+        for (const [key, old] of LEGACY_DEFAULTS) {
+          if (Number(Zotero.Prefs.get(PREFIX + key, true)) === old) Zotero.Prefs.set(PREFIX + key, DEFAULT_PREFS[key], true);
+        }
+      }
+      if (version < 3 && !String(Zotero.Prefs.get(PREFIX + PREFS.apiKey, true) || "").trim()) {
+        if (Zotero.Prefs.get(PREFIX + PREFS.endpoint, true) === LEGACY_SERVICE.endpoint) Zotero.Prefs.set(PREFIX + PREFS.endpoint, RELAY.endpoint, true);
+        if (Zotero.Prefs.get(PREFIX + PREFS.model, true) === LEGACY_SERVICE.model) Zotero.Prefs.set(PREFIX + PREFS.model, RELAY.model, true);
       }
       Zotero.Prefs.set(PREFIX + PREFS.prefsVersion, PREFS_VERSION, true);
     }

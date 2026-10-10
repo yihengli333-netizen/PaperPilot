@@ -21,7 +21,7 @@ function load() {
   id("pp-model").value = g("model", RELAY.model);
   id("pp-language").value = g("language", "zh") === "en" ? "en" : "zh";
   id("pp-maxchars").value = g("maxInputChars", 100000);
-  id("pp-timeout").value = Math.floor(Number(g("timeoutMs", 120000)) / 1000);
+  id("pp-timeout").value = Math.floor(Number(g("timeoutMs", 300000)) / 1000);
   id("pp-highlights").value = g("highlightCount", 6);
   id("pp-auto").checked = g("autoAnalyze", false) === true;
 }
@@ -32,7 +32,7 @@ function save() {
   Zotero.Prefs.set(P + "model", id("pp-model").value.trim(), true);
   Zotero.Prefs.set(P + "language", id("pp-language").value, true);
   Zotero.Prefs.set(P + "maxInputChars", Number(id("pp-maxchars").value) || 100000, true);
-  Zotero.Prefs.set(P + "timeoutMs", (Number(id("pp-timeout").value) || 120) * 1000, true);
+  Zotero.Prefs.set(P + "timeoutMs", (Number(id("pp-timeout").value) || 300) * 1000, true);
   Zotero.Prefs.set(P + "highlightCount", Number(id("pp-highlights").value) || 6, true);
   Zotero.Prefs.set(P + "autoAnalyze", !!id("pp-auto").checked, true);
 }

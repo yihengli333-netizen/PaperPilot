@@ -228,7 +228,7 @@ async function runAnalyze(container: HTMLElement, item: any, force: boolean, aut
     bind(container, item, null);
     return;
   }
-  html(container, `${STYLE}<div class="pp-wrap"><div class="pp-empty">正在分析论文…（首次约需 10-60 秒）</div></div>`);
+  html(container, `${STYLE}<div class="pp-wrap"><div class="pp-empty">正在分析论文…（视论文长度和模型约需 30 秒到 3 分钟）</div></div>`);
   try {
     const { result, fromCache } = await analyzeItem(item, { force });
     if (!container.isConnected) return;

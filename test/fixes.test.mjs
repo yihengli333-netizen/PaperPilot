@@ -276,7 +276,7 @@ test('cached and newly analyzed results retain the same clear-highlight action',
   const cached=result();const prefs={apiKey:'fake',endpoint:'https://example.test',model:'mock'};
   const z={ItemPaneManager:{registerSection:o=>{section=o;return 'pane';}},DataDirectory:{dir:'/tmp'},Prefs:{get:k=>prefs[k.split('.').at(-1)]}};
   const m=await load('ui',z,{PathUtils:{join:(...p)=>p.join('/')},IOUtils:{stat:async()=>({size:123,lastModified:5}),exists:async()=>true,
-    readUTF8:async()=>JSON.stringify({'v3:PDFKEY:123:5:mock:zh:p3':{result:cached}})}});
+    readUTF8:async()=>JSON.stringify({'v3:PDFKEY:123:5:mock:zh:p4':{result:cached}})}});
   m.registerSection();const body=element();section.onRender({item:att,body,doc});
   await section.onAsyncRender({item:att,body});
   const actions=()=>body.querySelectorAll('[data-pp-act]').map(e=>e.dataset.ppAct);
@@ -372,10 +372,23 @@ test('JSON mode is requested and dropped (and remembered) when the endpoint reje
   assert.equal((await m.callLLM(cfg,'meta','body',6)).a,2);
   assert.equal(calls[2].body.response_format,undefined,'unsupported endpoint is remembered');
 });
-test('a genuine HTTP error is still reported after the JSON-mode retry',async()=>{
-  const {z,extra}=llmEnv([{status:400,body:{error:{message:'model not found'}}},{status:400,body:{error:{message:'model not found'}}}]);
+test('an unrelated 400 (e.g. upstream content rejection) is reported once without resending the paper',async()=>{
+  const {calls,z,extra}=llmEnv([{status:400,body:{error:{message:'upstream rejected request'}}},reply('{"a":1}')]);
   const m=await load('llm',z,extra);
-  await assert.rejects(m.callLLM(cfg,'meta','body',6),/400.*model not found/);
+  await assert.rejects(m.callLLM(cfg,'meta','body',6),/400.*upstream rejected request.*内容审核/);
+  assert.equal(calls.length,1);
+});
+test('raw control characters copied from the PDF text layer do not break JSON parsing',async()=>{
+  const {z,extra}=llmEnv([reply('{"quote":"the rank r \u001c min(d, k)."}')]);
+  const m=await load('llm',z,extra);
+  assert.equal((await m.callLLM(cfg,'meta','body',6)).quote,'the rank r   min(d, k).');
+});
+test('control characters are removed from extracted PDF text',async()=>{
+  const ctx={exports:{},Zotero:{Reader:{_readers:[]},debug(){},PDFWorker:{async getFullText(){return {text:'rank r \u001c min(d, k) '+'x'.repeat(300),totalPages:1};}}}};
+  const m=await load('parser',ctx.Zotero);
+  const doc=await m.parseItem({id:1,getFilePathAsync:async()=>'/p.pdf'});
+  assert.ok(!/[\u0000-\u0008\u000b-\u001f]/.test(doc.fullText));
+  assert.ok(m.verifyQuote(doc.fullText,'the rank r \u001c min(d, k)'.slice(4)));
 });
 test('the non-JSON retry gets its own full timeout',async()=>{
   // First reply takes ~70% of the timeout and is not JSON; the retry must not inherit the remaining 30%.
@@ -426,7 +439,7 @@ test('unconfigured users move from the old OpenAI default to the relay; configur
     m.initPrefs();
   }
   assert.equal(fresh['extensions.zotero.paperpilot.endpoint'],'https://ccg-cli.online/v1/chat/completions');
-  assert.equal(fresh['extensions.zotero.paperpilot.model'],'qwen3.8-flash');
+  assert.equal(fresh['extensions.zotero.paperpilot.model'],'doubao-seed-2.0-lite');
   assert.equal(keyed['extensions.zotero.paperpilot.endpoint'],'https://api.openai.com/v1/chat/completions');
   assert.equal(keyed['extensions.zotero.paperpilot.model'],'gpt-4o-mini');
 });

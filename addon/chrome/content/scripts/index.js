@@ -4267,12 +4267,12 @@
     for (const h of result.highlights || []) out.push({ cat: "highlight", finding: h, primary: true });
     return out;
   }
-  var PROMPT_VERSION = 3;
+  var PROMPT_VERSION = 4;
   var RELAY = {
     name: "CCG API",
     endpoint: "https://ccg-cli.online/v1/chat/completions",
     keyURL: "https://ccg-cli.online/ccg-console/",
-    model: "qwen3.8-flash"
+    model: "doubao-seed-2.0-lite"
   };
   var LEGACY_SERVICE = { endpoint: "https://api.openai.com/v1/chat/completions", model: "gpt-4o-mini" };
   var PREFS = {
@@ -4292,7 +4292,7 @@
     [PREFS.model]: RELAY.model,
     [PREFS.language]: "zh",
     [PREFS.maxInputChars]: 1e5,
-    [PREFS.timeoutMs]: 12e4,
+    [PREFS.timeoutMs]: 3e5,
     [PREFS.autoAnalyze]: false,
     [PREFS.highlightCount]: 6
   };
@@ -4428,10 +4428,10 @@
     });
     return { text: parts.join(""), truncated: true, partial: true, omitted };
   }
-  function systemPrompt(lang, count) {
+  function taskInstructions(lang, count) {
     const langName = lang === "zh" ? "简体中文" : "English";
     return [
-      "你是一个严谨的学术论文分析助手。",
+      "任务：分析下方论文，按要求输出 JSON。",
       `请用${langName}输出，并严格遵守以下规则：`,
       "1. 只依据提供的论文正文内容作答，禁止臆测或补充外部知识。",
       '2. 每一个字段都必须附 location（章节号 + 页码，如 "Section 3.2, Page 5"）与 quote。quote 必须从正文逐字复制（保持原文语言，不翻译、不改写、不省略中间部分），是连续出现的一到两个完整句子（约 20-60 个词或 30-120 个汉字），能独立理解，不要只摘 1-2 个词。正文中的 [PDF Page N] 是页码标记，不属于原文，quote 不要跨越它。',
@@ -4451,12 +4451,17 @@
       "}"
     ].join("\n");
   }
-  function userPrompt(metaText, body) {
-    return `论文元数据：
+  function userPrompt(instructions, metaText, body) {
+    return `${instructions}
+
+论文元数据：
 ${metaText}
 
 论文正文：
-${body}`;
+${body}
+
+---
+正文结束。现在按上面的规则和 JSON 结构输出，只输出 JSON。quote 必须逐字复制正文原句。`;
   }
   function repairJSON(s) {
     let out = s.trim();
@@ -4472,7 +4477,7 @@ ${body}`;
     return out;
   }
   function extractJSON(raw) {
-    let s = (raw || "").trim();
+    let s = (raw || "").replace(/[\u0000-\u001f\u007f]/g, (c) => c === "\n" ? "\n" : " ").trim();
     const fence = s.match(/```(?:json)?\s*([\s\S]*?)```/i);
     if (fence) s = fence[1].trim();
     const start = s.search(/[{\[]/);
@@ -4506,8 +4511,7 @@ ${body}`;
   async function callLLM(config, metaText, body, count, onRetry) {
     const doFetch = async (extraInstruction, jsonMode = jsonModeSupported.get(config.endpoint) !== false) => {
       const messages = [
-        { role: "system", content: systemPrompt(config.language, count) + (extraInstruction || "") },
-        { role: "user", content: userPrompt(metaText, body) }
+        { role: "user", content: userPrompt(taskInstructions(config.language, count) + (extraInstruction || ""), metaText, body) }
       ];
       const controller = new (Zotero.getMainWindow()).AbortController();
       const timer = setTimeout(() => controller.abort(), config.timeoutMs);
@@ -4538,7 +4542,7 @@ ${body}`;
       } finally {
         clearTimeout(timer);
       }
-      if (jsonMode && (res.status === 400 || res.status === 422)) {
+      if (jsonMode && (res.status === 400 || res.status === 422) && /response_format|json|unsupported|not support|unknown (field|param)|unrecognized|extra (field|input)|invalid param/i.test(text2)) {
         const content2 = await doFetch(extraInstruction, false);
         jsonModeSupported.set(config.endpoint, false);
         return content2;
@@ -4550,7 +4554,8 @@ ${body}`;
           detail = j.error?.message || j.message || detail;
         } catch (e) {
         }
-        throw new LLMError(`模型服务返回 ${res.status}：${detail}`, "http");
+        const hint = res.status === 400 && /reject|risk|sensitive|inappropriate|content|安全|审核|敏感/i.test(detail) ? "（上游拒绝了请求，常见原因是内容审核；论文含敏感示例时可换一个模型重试）" : res.status === 401 ? "（密钥无效或已过期，请在设置中检查）" : res.status === 402 || /quota|余额|insufficient/i.test(detail) ? "（余额不足，请充值）" : res.status === 503 && /no available channel/i.test(detail) ? "（当前密钥所在分组没有该模型，请点“获取可用模型”换一个）" : res.status === 504 || res.status === 502 ? "（上游服务暂时不可用，请稍后重试或换模型）" : "";
+        throw new LLMError(`模型服务返回 ${res.status}：${detail}${hint}`, "http");
       }
       let json;
       try {
@@ -4765,7 +4770,7 @@ ${body}`;
     "‟": '"',
     "″": '"'
   };
-  var DROP = /[\s­‐‑‒–—―−-]/u;
+  var DROP = /[\s\u0000-\u001f\u007f\u00ad\u2010\u2011\u2012\u2013\u2014\u2015\u2212-]/u;
   function canonChar(ch) {
     let out = "";
     for (const c of ch.normalize("NFKC")) {
@@ -4863,7 +4868,7 @@ ${body}`;
 
   // src/parser.ts
   function normalize(text2) {
-    return text2.replace(/\r\n?/g, "\n").replace(/[ \t]+/g, " ").replace(/\n{3,}/g, "\n\n").trim();
+    return text2.replace(/\r\n?/g, "\n").replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, " ").replace(/[ \t]+/g, " ").replace(/\n{3,}/g, "\n\n").trim();
   }
   async function getPath(item) {
     try {
@@ -21564,7 +21569,7 @@ ${label}${f.verified ? "" : "（原文片段未校验）"}：${f.summary}`
       bind(container, item, null);
       return;
     }
-    html(container, `${STYLE}<div class="pp-wrap"><div class="pp-empty">正在分析论文…（首次约需 10-60 秒）</div></div>`);
+    html(container, `${STYLE}<div class="pp-wrap"><div class="pp-empty">正在分析论文…（视论文长度和模型约需 30 秒到 3 分钟）</div></div>`);
     try {
       const { result, fromCache } = await analyzeItem(item, { force });
       if (!container.isConnected) return;

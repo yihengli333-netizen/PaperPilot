@@ -65,7 +65,7 @@ export function allFindings(result: SummaryResult): Array<{ cat: Category; findi
 }
 
 /** 分析提示词或结果结构变化时递增，旧缓存随之失效 */
-export const PROMPT_VERSION = 3;
+export const PROMPT_VERSION = 4;
 
 export interface LLMConfig {
   endpoint: string;
@@ -99,7 +99,7 @@ export const RELAY = {
   name: "CCG API",
   endpoint: "https://ccg-cli.online/v1/chat/completions",
   keyURL: "https://ccg-cli.online/ccg-console/",
-  model: "qwen3.8-flash",
+  model: "doubao-seed-2.0-lite",
 } as const;
 
 /** 0.7 之前的默认服务，用于把从未配置过密钥的用户迁移到默认中转站 */
@@ -129,7 +129,7 @@ export const DEFAULT_PREFS: Record<string, string | number | boolean> = {
   [PREFS.model]: RELAY.model,
   [PREFS.language]: "zh",
   [PREFS.maxInputChars]: 100000,
-  [PREFS.timeoutMs]: 120000,
+  [PREFS.timeoutMs]: 300000,
   [PREFS.autoAnalyze]: false,
   [PREFS.highlightCount]: 6,
 };

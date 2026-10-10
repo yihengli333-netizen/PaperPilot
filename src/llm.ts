@@ -102,10 +102,14 @@ export function condenseText(text: string, max: number): { text: string; truncat
   return { text: parts.join(""), truncated: true, partial: true, omitted };
 }
 
-function systemPrompt(lang: "zh" | "en", count: number): string {
+/**
+ * 任务说明。放在 user 消息里而不是 system 消息：部分中转渠道会丢弃或替换 system 消息，
+ * 且会对“你是…”式的角色设定拒绝执行，所以只写任务本身。
+ */
+function taskInstructions(lang: "zh" | "en", count: number): string {
   const langName = lang === "zh" ? "简体中文" : "English";
   return [
-    "你是一个严谨的学术论文分析助手。",
+    "任务：分析下方论文，按要求输出 JSON。",
     `请用${langName}输出，并严格遵守以下规则：`,
     "1. 只依据提供的论文正文内容作答，禁止臆测或补充外部知识。",
     "2. 每一个字段都必须附 location（章节号 + 页码，如 \"Section 3.2, Page 5\"）与 quote。quote 必须从正文逐字复制（保持原文语言，不翻译、不改写、不省略中间部分），是连续出现的一到两个完整句子（约 20-60 个词或 30-120 个汉字），能独立理解，不要只摘 1-2 个词。正文中的 [PDF Page N] 是页码标记，不属于原文，quote 不要跨越它。",
@@ -126,8 +130,9 @@ function systemPrompt(lang: "zh" | "en", count: number): string {
   ].join("\n");
 }
 
-function userPrompt(metaText: string, body: string): string {
-  return `论文元数据：\n${metaText}\n\n论文正文：\n${body}`;
+function userPrompt(instructions: string, metaText: string, body: string): string {
+  // 长正文之后再重申输出要求，避免模型读完正文后忘记格式
+  return `${instructions}\n\n论文元数据：\n${metaText}\n\n论文正文：\n${body}\n\n---\n正文结束。现在按上面的规则和 JSON 结构输出，只输出 JSON。quote 必须逐字复制正文原句。`;
 }
 
 /** 修补被截断的 JSON：悬空逗号、未闭合字符串、缺失括号 */
@@ -152,7 +157,8 @@ function repairJSON(s: string): string {
 
 /** 从回复文本中稳健地取出 JSON */
 export function extractJSON(raw: string): any {
-  let s = (raw || "").trim();
+  // JSON 字符串里不允许出现原样的控制字符；换行、制表符替换为空格不影响结构
+  let s = (raw || "").replace(/[\u0000-\u001f\u007f]/g, (c) => (c === "\n" ? "\n" : " ")).trim();
   const fence = s.match(/```(?:json)?\s*([\s\S]*?)```/i);
   if (fence) s = fence[1].trim();
   const start = s.search(/[{\[]/);
@@ -207,8 +213,7 @@ export async function callLLM(
   // 每次请求单独计时：重试不应继承上一次已消耗的时间
   const doFetch = async (extraInstruction?: string, jsonMode = jsonModeSupported.get(config.endpoint) !== false): Promise<string> => {
     const messages: any[] = [
-      { role: "system", content: systemPrompt(config.language, count) + (extraInstruction || "") },
-      { role: "user", content: userPrompt(metaText, body) },
+      { role: "user", content: userPrompt(taskInstructions(config.language, count) + (extraInstruction || ""), metaText, body) },
     ];
     const controller = new (Zotero.getMainWindow().AbortController)();
     const timer = setTimeout(() => controller.abort(), config.timeoutMs);
@@ -240,8 +245,10 @@ export async function callLLM(
       clearTimeout(timer);
     }
 
-    // 不支持 JSON 模式的服务会以 400/422 拒绝该参数（错误文案各家不同）：去掉参数重发一次，成功则记住
-    if (jsonMode && (res.status === 400 || res.status === 422)) {
+    // 不支持 JSON 模式的服务会以 400/422 拒绝该参数：去掉参数重发一次，成功则记住。
+    // 只在错误信息指向参数问题时重发，否则（如上游内容审核拒绝）重发只会再扣一次整篇论文的费用。
+    if (jsonMode && (res.status === 400 || res.status === 422)
+      && /response_format|json|unsupported|not support|unknown (field|param)|unrecognized|extra (field|input)|invalid param/i.test(text)) {
       const content = await doFetch(extraInstruction, false);
       jsonModeSupported.set(config.endpoint, false);
       return content;
@@ -254,7 +261,13 @@ export async function callLLM(
       } catch (e) {
         /* ignore */
       }
-      throw new LLMError(`模型服务返回 ${res.status}：${detail}`, "http");
+      const hint = res.status === 400 && /reject|risk|sensitive|inappropriate|content|安全|审核|敏感/i.test(detail)
+        ? "（上游拒绝了请求，常见原因是内容审核；论文含敏感示例时可换一个模型重试）"
+        : res.status === 401 ? "（密钥无效或已过期，请在设置中检查）"
+        : res.status === 402 || /quota|余额|insufficient/i.test(detail) ? "（余额不足，请充值）"
+        : res.status === 503 && /no available channel/i.test(detail) ? "（当前密钥所在分组没有该模型，请点“获取可用模型”换一个）"
+        : res.status === 504 || res.status === 502 ? "（上游服务暂时不可用，请稍后重试或换模型）" : "";
+      throw new LLMError(`模型服务返回 ${res.status}：${detail}${hint}`, "http");
     }
 
     let json: any;

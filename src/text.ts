@@ -8,8 +8,9 @@ const QUOTES: Record<string, string> = {
   "“": '"', "”": '"', "„": '"', "‟": '"', "″": '"',
 };
 // Hyphens and dashes are dropped: "meth-\nod" (line-break hyphenation) and "state-of-the-art"
-// must compare equal regardless of which side carries the hyphen.
-const DROP = /[\s­‐‑‒–—―−-]/u;
+// must compare equal regardless of which side carries the hyphen. Control characters (broken glyph
+// mappings such as \x1c for "≪") are dropped as well.
+const DROP = /[\s\u0000-\u001f\u007f\u00ad\u2010\u2011\u2012\u2013\u2014\u2015\u2212-]/u;
 
 function canonChar(ch: string): string {
   let out = "";

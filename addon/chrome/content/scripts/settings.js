@@ -5,7 +5,7 @@
     name: "CCG API",
     endpoint: "https://ccg-cli.online/v1/chat/completions",
     keyURL: "https://ccg-cli.online/ccg-console/",
-    model: "qwen3.8-flash"
+    model: "doubao-seed-2.0-lite"
   };
   function modelsURL(endpoint) {
     const url = endpoint.trim().replace(/\/+$/, "");
@@ -28,7 +28,7 @@
     [PREFS.model]: RELAY.model,
     [PREFS.language]: "zh",
     [PREFS.maxInputChars]: 1e5,
-    [PREFS.timeoutMs]: 12e4,
+    [PREFS.timeoutMs]: 3e5,
     [PREFS.autoAnalyze]: false,
     [PREFS.highlightCount]: 6
   };
@@ -48,7 +48,7 @@
     id("pp-model").value = g("model", RELAY.model);
     id("pp-language").value = g("language", "zh") === "en" ? "en" : "zh";
     id("pp-maxchars").value = g("maxInputChars", 1e5);
-    id("pp-timeout").value = Math.floor(Number(g("timeoutMs", 12e4)) / 1e3);
+    id("pp-timeout").value = Math.floor(Number(g("timeoutMs", 3e5)) / 1e3);
     id("pp-highlights").value = g("highlightCount", 6);
     id("pp-auto").checked = g("autoAnalyze", false) === true;
   }
@@ -58,7 +58,7 @@
     Zotero.Prefs.set(P + "model", id("pp-model").value.trim(), true);
     Zotero.Prefs.set(P + "language", id("pp-language").value, true);
     Zotero.Prefs.set(P + "maxInputChars", Number(id("pp-maxchars").value) || 1e5, true);
-    Zotero.Prefs.set(P + "timeoutMs", (Number(id("pp-timeout").value) || 120) * 1e3, true);
+    Zotero.Prefs.set(P + "timeoutMs", (Number(id("pp-timeout").value) || 300) * 1e3, true);
     Zotero.Prefs.set(P + "highlightCount", Number(id("pp-highlights").value) || 6, true);
     Zotero.Prefs.set(P + "autoAnalyze", !!id("pp-auto").checked, true);
   }

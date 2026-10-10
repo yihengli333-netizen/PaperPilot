@@ -13,6 +13,8 @@ import type { PageText, ParsedDoc } from "./types";
 function normalize(text: string): string {
   return text
     .replace(/\r\n?/g, "\n")
+    // 文字层中错误映射的字形会变成控制字符（如 \x1c）。模型逐字照抄后会让 JSON 失效，提取时即去掉
+    .replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, " ")
     .replace(/[ \t]+/g, " ")
     .replace(/\n{3,}/g, "\n\n")
     .trim();

@@ -27,6 +27,10 @@ function section(num: number, cat: string, f: any, extra = ""): string {
   <div style="font-weight:600;margin:0 0 4px">${num}. ${chip(cat)} ${esc(extra || CATEGORY_LABEL[cat])}</div>
   <div style="margin:0 0 2px">${esc(f.summary)}</div>
   ${loc(f)}
+  ${(f.evidence || []).map((e: any) => `<div style="margin:6px 0 0 12px;padding-left:8px;border-left:2px solid #eee">
+    <div>补充：${esc(e.summary)}</div>
+    ${loc(e)}
+  </div>`).join("")}
 </div>`;
 }
 

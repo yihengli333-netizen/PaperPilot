@@ -1,5 +1,5 @@
 import { locateQuote, type LocateContext } from "./geo";
-import type { SummaryResult, Finding, Highlight } from "./types";
+import { allFindings, type SummaryResult } from "./types";
 
 export const CATEGORY_COLOR: Record<string, string> = {
   research_question: "#ffd400", method: "#2ea8e5", results: "#5fb236",
@@ -48,11 +48,7 @@ export function clearPilotAnnotations(attachment: any): Promise<number> {
 export function annotatePDF(attachment: any, result: SummaryResult, ctx: LocateContext): Promise<AnnotateStats> {
   return serialize(attachment,async()=>{
     const stats: AnnotateStats = {created:0,skipped:0,existing:0,failed:0,errors:[]};
-    const tasks: Array<{cat:string; finding:Finding | Highlight}> = [];
-    for (const cat of ["research_question","method","results","limitations"] as const) {
-      if (result[cat]?.quote) tasks.push({cat,finding:result[cat]});
-    }
-    for (const finding of result.highlights || []) if (finding.quote) tasks.push({cat:"highlight",finding});
+    const tasks = allFindings(result).filter(({finding})=>finding.quote);
     for (const {cat,finding:f} of tasks) {
       if (f.verified !== true) {
         stats.skipped++; continue;

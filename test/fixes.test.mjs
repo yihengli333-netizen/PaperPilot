@@ -6,12 +6,12 @@ import * as esbuild from 'esbuild';
 import {fileURLToPath} from 'node:url';
 
 const sources = new Map();
-test('Python bridge loads before Zotero rootURI and filesystem are available',async()=>{
-  const m=await load('python_bridge');
+test('enhanced export loads before Zotero rootURI and filesystem are available',async()=>{
+  const m=await load('enhanced-export');
   assert.equal(typeof m.annotatePDFAdvanced,'function');
 });
-test('Python bridge preserves separate line rectangles and counts skipped evidence',async()=>{
-  const m=await load('python_bridge');
+test('enhanced export preserves separate line rectangles and counts skipped evidence',async()=>{
+  const m=await load('enhanced-export');
   const r=reader();
   const pdf=r._internalReader._primaryView._iframeWindow.PDFViewerApplication.pdfDocument;
   const orig=pdf.getPageData;
@@ -26,44 +26,40 @@ test('Python bridge preserves separate line rectangles and counts skipped eviden
   assert.equal(out.annotations[0].rects.length,2);
   assert.equal(out.annotations[0].rects[1][0],300);
 });
-test('Python bridge uses Unicode async launch and reports failure',async()=>{
-  const args=['中文 path/script.py'];let called=false;
-  const z={File:{pathToFile:path=>path}};
-  const proc={init(){},exitValue:1,runwAsync(actual,count,observer){
-    assert.equal(actual,args);assert.equal(count,1);called=true;
-    setTimeout(()=>observer.observe(null,'process-finished'),0);
-  }};
-  const m=await load('python_bridge',z,{Components:{classes:{'@mozilla.org/process/util;1':{createInstance:()=>proc}},interfaces:{}}});
-  assert.equal(await m.runPython('/python',args),1);assert.ok(called);
+test('supporting evidence is annotated in its category colour layer',async()=>{
+  const m=await load('enhanced-export');
+  const second='A second verified sentence.';
+  const data={method:{summary:'Main',quote,verified:true,page:1,evidence:[{summary:'Extra',quote:second,verified:true,page:2}]},highlights:[]};
+  const out=await m.convertAnnotations(data,{reader:reader([quote,second])});
+  assert.deepEqual(JSON.parse(JSON.stringify(out.annotations.map(a=>[a.category,a.page,a.summary,a.layer]))),[['method',0,'Main','L2'],['method',1,'Extra','L2']]);
 });
-test('enhanced export extracts jar resources, imports a separate PDF and cleans staging',async()=>{
-  const files=new Map([['/python',true]]);let resourceRead=false,imported=false;
-  const z={Prefs:{get:()=>'/python'},PaperPilot:{rootURI:'jar:file:///plugin@id.xpi!/'},debug(){},
-    File:{pathToFile:p=>p,getResourceAsync:async uri=>{
-      assert.equal(uri,'jar:file:///plugin@id.xpi!/tools/pdf_annotator.py');resourceRead=true;return 'script';}},
-    getTempDirectory:()=>({path:'/tmp'}),DataObjectUtilities:{generateKey:()=> 'unique'},
+test('enhanced export writes with pdf-lib, imports a separate PDF and cleans staging',async()=>{
+  const {PDFDocument}=await import('pdf-lib');
+  const src=await PDFDocument.create();src.addPage([612,792]);
+  const sourceBytes=await src.save();
+  const files=new Map();let imported=null;
+  const z={debug(){},getTempDirectory:()=>({path:'/tmp'}),DataObjectUtilities:{generateKey:()=> 'unique'},
     getMainWindow:()=>({Image:class {set src(v){void v;setTimeout(()=>this.onload(),0);}},document:{createElementNS:()=>({
-      getContext:()=>({fillRect(){},scale(){},drawImage(){}}),toDataURL:()=> 'data:image/png;base64,YQ=='})}}),
-    PDFWorker:{export:async(id,path,priority,password,transfer)=>{assert.equal(id,7);assert.equal(transfer,false);files.set(path,'source');}},
+      getContext:()=>({fillRect(){},scale(){},drawImage(){}}),toDataURL:()=> 'data:image/png;base64,'+PNG})}}),
+    PDFWorker:{export:async(id,path,priority,password,transfer)=>{assert.equal(id,7);assert.equal(transfer,false);files.set(path,sourceBytes);}},
     Attachments:{importFromFile:async opts=>{
-      assert.notEqual(opts.file,'/original.pdf');assert.equal(opts.parentItemID,16);assert.ok(files.has(opts.file));imported=true;
+      assert.equal(opts.parentItemID,16);assert.ok(files.has(opts.file));imported=files.get(opts.file);
       return {id:90,addTag:tag=>assert.equal(tag,'PaperPilot Export'),saveTx:async()=>{},getFilePathAsync:async()=>'/library/new.pdf'};
     }}};
-  const proc={init(){},exitValue:0,runwAsync(args,count,observer){
-    const request=files.get(args[4]);assert.equal(request.annotations.length,1);
-    assert.equal(request.annotations[0].layer,'L2');assert.ok(files.has(request.mindmapPath));
-    files.set(args[5],'new pdf');files.set(args[6],{ok:true,annotated:1,layers:{L2:1,L3:0},mindmap:true});
-    setTimeout(()=>observer.observe(null,'process-finished'),0);
-  }};
-  const m=await load('python_bridge',z,{atob:s=>Buffer.from(s,'base64').toString('binary'),
-    PathUtils:{join:(...p)=>p.join('/')},IOUtils:{exists:async p=>files.has(p),makeDirectory:async()=>{},
-      writeUTF8:async(p,v)=>files.set(p,v),write:async(p,v)=>files.set(p,v),writeJSON:async(p,v)=>files.set(p,v),readJSON:async p=>files.get(p),
-      remove:async dir=>{for(const p of files.keys())if(p.startsWith(dir+'/'))files.delete(p);}},
-    Components:{classes:{'@mozilla.org/process/util;1':{createInstance:()=>proc}},interfaces:{}}});
+  const m=await load('enhanced-export',z,{atob:s=>Buffer.from(s,'base64').toString('binary'),
+    PathUtils:{join:(...p)=>p.join('/')},IOUtils:{makeDirectory:async()=>{},
+      read:async p=>files.get(p),write:async(p,v)=>files.set(p,v),
+      remove:async dir=>{for(const p of files.keys())if(p.startsWith(dir+'/'))files.delete(p);}}});
   const att={id:7,libraryID:1,parentItem:{id:16,isRegularItem:()=>true,getDisplayTitle:()=> 'Test paper'}};
   const out=await m.annotatePDFAdvanced(att,result(),{reader:reader()});
-  assert.equal(out.path,'/library/new.pdf');assert.ok(resourceRead && imported);assert.equal(files.size,1);
+  assert.equal(out.path,'/library/new.pdf');assert.equal(out.annotated,1);assert.deepEqual({...out.layers},{L2:1,L3:0});
+  assert.equal(files.size,0);
+  const written=await PDFDocument.load(new Uint8Array(imported));
+  assert.equal(written.getPageCount(),2,'mindmap appended as last page');
+  assert.equal(written.getPage(0).node.Annots().size(),2,'highlight + reading guide');
 });
+// 1x1 white PNG
+const PNG='iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4//8/AAX+Av4N70a4AAAAAElFTkSuQmCC';
 async function load(name, Zotero = {}, extra = {}) {
   if (!sources.has(name)) {
     const r = await esbuild.build({entryPoints:[fileURLToPath(new URL(`../src/${name}.ts`,import.meta.url))],bundle:true,write:false,format:'cjs',platform:'node',define:{__PP_VERSION__:'"test"'}});
@@ -280,7 +276,7 @@ test('cached and newly analyzed results retain the same clear-highlight action',
   const cached=result();const prefs={apiKey:'fake',endpoint:'https://example.test',model:'mock'};
   const z={ItemPaneManager:{registerSection:o=>{section=o;return 'pane';}},DataDirectory:{dir:'/tmp'},Prefs:{get:k=>prefs[k.split('.').at(-1)]}};
   const m=await load('ui',z,{PathUtils:{join:(...p)=>p.join('/')},IOUtils:{stat:async()=>({size:123,lastModified:5}),exists:async()=>true,
-    readUTF8:async()=>JSON.stringify({'v2:PDFKEY:123:5':{result:cached}})}});
+    readUTF8:async()=>JSON.stringify({'v3:PDFKEY:123:5:mock:zh:p3':{result:cached}})}});
   m.registerSection();const body=element();section.onRender({item:att,body,doc});
   await section.onAsyncRender({item:att,body});
   const actions=()=>body.querySelectorAll('[data-pp-act]').map(e=>e.dataset.ppAct);
@@ -344,4 +340,81 @@ test('export refuses to claim success when no quote has reliable coordinates',as
   const m=await load('pdf-export',z);
   await assert.rejects(()=>m.exportAnnotatedPDF(att,result(false)),/没有.*高亮/);
   assert.equal(called,false);
+});
+test('cache key changes with model, language and prompt version but not between identical configs',async()=>{
+  const m=await load('store',{},{IOUtils:{stat:async()=>({size:10,lastModified:2})}});
+  const att={key:'K',getFilePathAsync:async()=>'/p.pdf'};
+  const a=await m.makeKey(att,{model:'gpt-4o-mini',language:'zh'});
+  assert.equal(a,await m.makeKey(att,{model:'gpt-4o-mini',language:'zh'}));
+  assert.notEqual(a,await m.makeKey(att,{model:'deepseek-chat',language:'zh'}));
+  assert.notEqual(a,await m.makeKey(att,{model:'gpt-4o-mini',language:'en'}));
+  assert.match(a,/:p\d+$/);
+});
+function llmEnv(responses) {
+  const calls=[];
+  const fetch=async(url,opts)=>{
+    const body=JSON.parse(opts.body);calls.push({body,signal:opts.signal});
+    const next=responses.shift();
+    if(next==='hang') return new Promise((_,reject)=>opts.signal.addEventListener('abort',()=>reject(Object.assign(new Error('aborted'),{name:'AbortError'}))));
+    return {ok:next.status===200,status:next.status,text:async()=>typeof next.body==='string' ? next.body : JSON.stringify(next.body)};
+  };
+  const z={getMainWindow:()=>({AbortController})};
+  return {calls,z,extra:{fetch}};
+}
+const reply=content=>({status:200,body:{choices:[{message:{content}}]}});
+const cfg={endpoint:'https://llm.test/v1',apiKey:'k',model:'m',language:'zh',maxInputChars:1000,timeoutMs:60,highlightCount:6};
+test('JSON mode is requested and dropped (and remembered) when the endpoint rejects it',async()=>{
+  const {calls,z,extra}=llmEnv([{status:400,body:{error:{message:'Unknown parameter'}}},reply('{"a":1}'),reply('{"a":2}')]);
+  const m=await load('llm',z,extra);
+  assert.equal((await m.callLLM(cfg,'meta','body',6)).a,1);
+  assert.deepEqual(JSON.parse(JSON.stringify(calls[0].body.response_format)),{type:'json_object'});
+  assert.equal(calls[1].body.response_format,undefined);
+  assert.equal((await m.callLLM(cfg,'meta','body',6)).a,2);
+  assert.equal(calls[2].body.response_format,undefined,'unsupported endpoint is remembered');
+});
+test('a genuine HTTP error is still reported after the JSON-mode retry',async()=>{
+  const {z,extra}=llmEnv([{status:400,body:{error:{message:'model not found'}}},{status:400,body:{error:{message:'model not found'}}}]);
+  const m=await load('llm',z,extra);
+  await assert.rejects(m.callLLM(cfg,'meta','body',6),/400.*model not found/);
+});
+test('the non-JSON retry gets its own full timeout',async()=>{
+  // First reply takes ~70% of the timeout and is not JSON; the retry must not inherit the remaining 30%.
+  const {calls,z,extra}=llmEnv([]);
+  const slowFetch=async(url,opts)=>{
+    calls.push(opts);
+    await new Promise((resolve,reject)=>{
+      const t=setTimeout(resolve,42);
+      opts.signal.addEventListener('abort',()=>{clearTimeout(t);reject(Object.assign(new Error('aborted'),{name:'AbortError'}));});
+    });
+    const content=calls.length===1 ? 'not json' : '{"ok":true}';
+    return {ok:true,status:200,text:async()=>JSON.stringify({choices:[{message:{content}}]})};
+  };
+  const m=await load('llm',z,{fetch:slowFetch});
+  assert.equal((await m.callLLM(cfg,'meta','body',6)).ok,true);
+  assert.equal(calls.length,2);
+});
+test('a page without text-layer data does not prevent locating quotes on other pages',async()=>{
+  const m=await load('geo');
+  const r=reader(['Cover page placeholder',quote]);
+  const pdf=r._internalReader._primaryView._iframeWindow.PDFViewerApplication.pdfDocument;
+  const orig=pdf.getPageData;
+  pdf.getPageData=async args=>args.pageIndex===0 ? {} : orig(args);
+  const loc=await m.locateQuote({reader:r},quote,0);
+  assert.equal(loc?.pageIndex,1);
+});
+test('geo locates quotes across line-break hyphenation and ligatures',async()=>{
+  const m=await load('geo');
+  const loc=await m.locateQuote({reader:reader(['The proposed meth-od uses a ﬁxed solver here.'])},'proposed method uses a fixed solver',0);
+  assert.equal(loc?.pageIndex,0);
+});
+test('legacy default limits are migrated once; customised values are kept',async()=>{
+  const store={'extensions.zotero.paperpilot.maxInputChars':30000,'extensions.zotero.paperpilot.timeoutMs':90000};
+  const z={Prefs:{get:k=>store[k],set:(k,v)=>{store[k]=v;}}};
+  const m=await load('prefs',z);
+  m.initPrefs();
+  assert.equal(store['extensions.zotero.paperpilot.maxInputChars'],100000);
+  assert.equal(store['extensions.zotero.paperpilot.timeoutMs'],90000);
+  store['extensions.zotero.paperpilot.maxInputChars']=30000;m.initPrefs();
+  assert.equal(store['extensions.zotero.paperpilot.maxInputChars'],30000,'a later explicit 30000 is respected');
+  assert.equal(m.getConfig().highlightCount,6);
 });

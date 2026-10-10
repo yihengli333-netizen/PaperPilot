@@ -55,9 +55,9 @@
       </div>
       <div class="row">
         <label for="pp-maxchars">正文最大字符</label>
-        <input type="number" id="pp-maxchars" min="6000" max="120000" step="1000" />
+        <input type="number" id="pp-maxchars" min="6000" max="400000" step="1000" />
       </div>
-      <div class="hint">超长论文会被截断（保留开头与结尾），结果中会给出提示。</div>
+      <div class="hint">超出时先略去参考文献、致谢和附录，再按章节重要性压缩（方法、结果、结论优先），结果中会给出提示。上限应小于模型的上下文长度。</div>
       <div class="row">
         <label for="pp-timeout">超时（秒）</label>
         <input type="number" id="pp-timeout" min="10" max="600" />
@@ -70,13 +70,6 @@
     </fieldset>
 
     <h2>维护</h2>
-    <fieldset>
-      <div class="row">
-        <label for="pp-python">增强 PDF 的 Python</label>
-        <input type="text" id="pp-python" placeholder="选择已安装 pypdf、reportlab 的 python.exe 完整路径" />
-      </div>
-      <div class="hint">仅“导出增强批注 PDF（含导图）”需要。本机已配置时无需修改；普通导出和独立导图无需 Python。</div>
-    </fieldset>
     <fieldset>
       <button id="pp-save">保存设置</button>
       <button id="pp-test">测试连接</button>

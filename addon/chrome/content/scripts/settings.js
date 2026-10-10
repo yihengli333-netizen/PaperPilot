@@ -14,22 +14,20 @@
     id("pp-apiKey").value = g("apiKey", "");
     id("pp-model").value = g("model", "gpt-4o-mini");
     id("pp-language").value = g("language", "zh") === "en" ? "en" : "zh";
-    id("pp-maxchars").value = g("maxInputChars", 3e4);
-    id("pp-timeout").value = Math.floor(Number(g("timeoutMs", 6e4)) / 1e3);
+    id("pp-maxchars").value = g("maxInputChars", 1e5);
+    id("pp-timeout").value = Math.floor(Number(g("timeoutMs", 12e4)) / 1e3);
     id("pp-highlights").value = g("highlightCount", 6);
     id("pp-auto").checked = g("autoAnalyze", false) === true;
-    if (id("pp-python")) id("pp-python").value = g("pythonPath", "");
   }
   function save() {
     Zotero.Prefs.set(P + "endpoint", id("pp-endpoint").value.trim(), true);
     Zotero.Prefs.set(P + "apiKey", id("pp-apiKey").value.trim(), true);
     Zotero.Prefs.set(P + "model", id("pp-model").value.trim(), true);
     Zotero.Prefs.set(P + "language", id("pp-language").value, true);
-    Zotero.Prefs.set(P + "maxInputChars", Number(id("pp-maxchars").value) || 3e4, true);
-    Zotero.Prefs.set(P + "timeoutMs", (Number(id("pp-timeout").value) || 60) * 1e3, true);
+    Zotero.Prefs.set(P + "maxInputChars", Number(id("pp-maxchars").value) || 1e5, true);
+    Zotero.Prefs.set(P + "timeoutMs", (Number(id("pp-timeout").value) || 120) * 1e3, true);
     Zotero.Prefs.set(P + "highlightCount", Number(id("pp-highlights").value) || 6, true);
     Zotero.Prefs.set(P + "autoAnalyze", !!id("pp-auto").checked, true);
-    if (id("pp-python")) Zotero.Prefs.set(P + "pythonPath", id("pp-python").value.trim(), true);
   }
   function status(msg, ok) {
     const el = id("pp-status");
@@ -88,7 +86,7 @@
       const e = id(el);
       if (e) e.addEventListener(ev, fn);
     };
-    ["pp-endpoint", "pp-apiKey", "pp-model", "pp-language", "pp-maxchars", "pp-timeout", "pp-highlights", "pp-python"].forEach(
+    ["pp-endpoint", "pp-apiKey", "pp-model", "pp-language", "pp-maxchars", "pp-timeout", "pp-highlights"].forEach(
       (k) => bind(k, "change", save)
     );
     bind("pp-auto", "change", save);

@@ -1,4 +1,5 @@
 import { findReader } from "./nav";
+import { canon } from "./text";
 import type { PageText, ParsedDoc } from "./types";
 
 /**
@@ -129,14 +130,11 @@ export async function parseItem(item: any): Promise<ParsedDoc> {
   );
 }
 
-/** 在原文中校验引用片段（忽略空白差异） */
+/** 在原文中校验引用片段：精确匹配（忽略空白、连字符、连字、引号样式与大小写差异） */
 export function verifyQuote(fullText: string, quote: string): boolean {
-  if (!quote || quote.length < 6) return false;
-  const norm = (s: string) => s.replace(/\s+/g, " ").toLowerCase().trim();
-  const hay = norm(fullText);
-  const needle = norm(quote);
-  if (hay.includes(needle)) return true;
-  return false;
+  const needle = canon(quote);
+  if (needle.length < 6) return false;
+  return canon(fullText).includes(needle);
 }
 
 /** 从 location 描述里解析页码（1 基；失败返回 0） */

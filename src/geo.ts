@@ -1,4 +1,6 @@
 /** Locate a complete quote using Zotero Reader's native character rectangles. */
+import { canon } from "./text";
+
 export type PdfRect = [number, number, number, number];
 interface PdfChar {
   c?: string;
@@ -16,14 +18,11 @@ export interface LocateResult {
 }
 export interface LocateContext { reader: any }
 const pageCache = new WeakMap<LocateContext, Map<number, PageData | null>>();
-function normalize(s: string): string {
-  return s.normalize("NFKC").replace(/\s+/g, "").toLowerCase();
-}
 function matchPage(data: PageData, quote: string, pageIndex: number): LocateResult | "ambiguous" | null {
   let text = "";
   const offsets: number[] = [];
   data.chars.forEach((char, index) => {
-    const unit = char.ignorable ? "" : normalize(char.u ?? char.c ?? "");
+    const unit = char.ignorable ? "" : canon(char.u ?? char.c ?? "");
     text += unit;
     for (let i = 0; i < unit.length; i++) offsets.push(index);
   });
@@ -55,7 +54,7 @@ function matchPage(data: PageData, quote: string, pageIndex: number): LocateResu
 
 /** No character coordinates, partial match, or ambiguous location => no annotation. */
 export async function locateQuote(ctx: LocateContext, quote: string, pageHint: number): Promise<LocateResult | null> {
-  const needle = normalize(quote || "");
+  const needle = canon(quote || "");
   if (needle.length < 6 || !ctx.reader) return null;
   const view = ctx.reader._internalReader?._primaryView;
   const pdf = view?._iframeWindow?.PDFViewerApplication?.pdfDocument;
@@ -87,7 +86,7 @@ export async function locateQuote(ctx: LocateContext, quote: string, pageHint: n
   let found: LocateResult | null = null;
   for (let index=0; index<total; index++) {
     const data = await get(index);
-    if (!data) return null;
+    if (!data) continue; // 个别页没有文字层（插图页等）不影响其他页的定位
     const match = matchPage(data,needle,index);
     if (match === "ambiguous") return null;
     if (match) {

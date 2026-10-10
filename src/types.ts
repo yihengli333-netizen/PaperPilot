@@ -14,6 +14,10 @@ export interface Finding {
   verified?: boolean;
   /** 页码（1 基），未知为 0 */
   page?: number;
+  /** 引用经模糊匹配后已替换为原文片段 */
+  corrected?: boolean;
+  /** 同一类别的补充证据（0-2 条），结构同 Finding */
+  evidence?: Finding[];
 }
 
 export interface Highlight {
@@ -23,6 +27,7 @@ export interface Highlight {
   quote: string;
   verified?: boolean;
   page?: number;
+  corrected?: boolean;
 }
 
 export interface SummaryResult {
@@ -43,6 +48,25 @@ export interface SummaryResult {
   };
 }
 
+export const CATEGORIES = ["research_question", "method", "results", "limitations"] as const;
+export type Category = (typeof CATEGORIES)[number] | "highlight";
+
+/** 结果中的全部引用：每类主结论、其补充证据、建议关注点。高亮、校验、索引均基于此列表。 */
+export function allFindings(result: SummaryResult): Array<{ cat: Category; finding: Finding | Highlight; primary: boolean }> {
+  const out: Array<{ cat: Category; finding: Finding | Highlight; primary: boolean }> = [];
+  for (const cat of CATEGORIES) {
+    const f = result[cat];
+    if (!f) continue;
+    out.push({ cat, finding: f, primary: true });
+    for (const e of f.evidence || []) out.push({ cat, finding: e, primary: false });
+  }
+  for (const h of result.highlights || []) out.push({ cat: "highlight", finding: h, primary: true });
+  return out;
+}
+
+/** 分析提示词或结果结构变化时递增，旧缓存随之失效 */
+export const PROMPT_VERSION = 3;
+
 export interface LLMConfig {
   endpoint: string;
   apiKey: string;
@@ -50,6 +74,7 @@ export interface LLMConfig {
   language: "zh" | "en";
   maxInputChars: number;
   timeoutMs: number;
+  highlightCount: number;
 }
 
 export interface PageText {
@@ -78,6 +103,7 @@ export const PREFS = {
   timeoutMs: "timeoutMs",
   autoAnalyze: "autoAnalyze",
   highlightCount: "highlightCount",
+  prefsVersion: "prefsVersion",
 } as const;
 
 export const DEFAULT_PREFS: Record<string, string | number | boolean> = {
@@ -85,8 +111,8 @@ export const DEFAULT_PREFS: Record<string, string | number | boolean> = {
   [PREFS.apiKey]: "",
   [PREFS.model]: "gpt-4o-mini",
   [PREFS.language]: "zh",
-  [PREFS.maxInputChars]: 30000,
-  [PREFS.timeoutMs]: 60000,
+  [PREFS.maxInputChars]: 100000,
+  [PREFS.timeoutMs]: 120000,
   [PREFS.autoAnalyze]: false,
   [PREFS.highlightCount]: 6,
 };

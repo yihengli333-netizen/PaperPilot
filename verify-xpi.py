@@ -21,7 +21,6 @@ required = [
     'chrome/content/settings.xhtml', 'chrome/skin/icon.svg',
     'locale/', 'locale/en-US/', 'locale/zh-CN/',
     'locale/en-US/paperpilot.ftl', 'locale/zh-CN/paperpilot.ftl',
-    'tools/pdf_annotator.py', 'tools/requirements.txt',
 ]
 with zipfile.ZipFile(path) as archive:
     assert archive.testzip() is None, 'Corrupt ZIP entry'
@@ -29,8 +28,7 @@ with zipfile.ZipFile(path) as archive:
     assert len(names) == len(set(names)), 'Duplicate ZIP entry'
     assert all(name in names for name in required), 'Missing package resources'
     assert json.loads(archive.read('manifest.json')) == manifest
-    for backend in ['pdf_annotator.py', 'requirements.txt']:
-        assert archive.read('tools/' + backend) == (ROOT / 'tools' / backend).read_bytes(), 'Stale Python backend'
+    assert not any(name.startswith('tools/') for name in names), 'Python backend must not ship'
     assert not any('probe' in name or 'smoke' in name for name in names), 'Diagnostic code in release'
     for name in names:
         assert not name.startswith('/') and '..' not in Path(name).parts
@@ -43,6 +41,13 @@ with zipfile.ZipFile(path) as archive:
         ftl = archive.read(f'locale/{locale}/paperpilot.ftl').decode('utf8')
         assert 'paperpilot-section-sidenav =' in ftl
     assert f'"{package["version"]}"' in archive.read('chrome/content/scripts/index.js').decode('utf8')
+
+updates = json.loads((ROOT / 'dist' / 'updates.json').read_text(encoding='utf8'))
+entry = updates['addons'][zotero_manifest['id']]['updates'][0]
+assert entry['version'] == package['version'], 'updates.json version mismatch'
+assert entry['update_link'].endswith(f"/v{package['version']}/paperpilot-{package['version']}.xpi"), 'updates.json link mismatch'
+assert entry['update_hash'] == 'sha256:' + hashlib.sha256(path.read_bytes()).hexdigest(), 'updates.json hash mismatch'
+assert zotero_manifest['update_url'].endswith('/releases/latest/download/updates.json'), 'update_url must serve the release manifest'
 
 report = {
     'file': str(path), 'version': package['version'],

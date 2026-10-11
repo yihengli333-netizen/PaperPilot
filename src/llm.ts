@@ -200,6 +200,38 @@ export function extractJSON(raw: string): any {
   throw new LLMError("模型返回的不是合法 JSON，请重试或更换模型。", "parse");
 }
 
+/**
+ * 读取流式（SSE）响应并拼出完整回复。返回 null 表示服务端没有按流式返回（由调用方按普通 JSON 解析）。
+ * 流式让连接上持续有数据，避免中转链路上的读取超时（实测某些渠道在 90 秒无数据时返回 504）。
+ */
+export async function readStream(res: Response, onChunk?: (received: number) => void): Promise<{ content: string } | { text: string }> {
+  const type = res.headers?.get?.("content-type") || "";
+  if (!/event-stream/i.test(type) || !res.body?.getReader) return { text: await res.text() };
+  const reader = res.body.getReader();
+  const decoder = new (Zotero.getMainWindow().TextDecoder)();
+  let buffer = "";
+  let content = "";
+  const handle = (line: string) => {
+    const data = line.replace(/^data:\s?/, "").trim();
+    if (!line.startsWith("data:") || !data || data === "[DONE]") return;
+    let event: any;
+    try { event = JSON.parse(data); } catch { return; }
+    if (event?.error) throw new LLMError(`模型服务返回错误：${event.error.message || JSON.stringify(event.error).slice(0, 200)}`, "http");
+    const piece = event?.choices?.[0]?.delta?.content ?? event?.choices?.[0]?.text ?? "";
+    if (typeof piece === "string") content += piece;
+  };
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (value) buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split(/\r?\n/);
+    buffer = done ? "" : lines.pop() || "";
+    for (const line of lines) handle(line);
+    onChunk?.(content.length);
+    if (done) break;
+  }
+  return { content };
+}
+
 /** 按端点记录是否支持 response_format（本次运行内有效） */
 const jsonModeSupported = new Map<string, boolean>();
 
@@ -208,7 +240,7 @@ export async function callLLM(
   metaText: string,
   body: string,
   count: number,
-  onRetry?: (msg: string) => void
+  onProgress?: (msg: string) => void
 ): Promise<any> {
   // 每次请求单独计时：重试不应继承上一次已消耗的时间
   const doFetch = async (extraInstruction?: string, jsonMode = jsonModeSupported.get(config.endpoint) !== false): Promise<string> => {
@@ -218,7 +250,8 @@ export async function callLLM(
     const controller = new (Zotero.getMainWindow().AbortController)();
     const timer = setTimeout(() => controller.abort(), config.timeoutMs);
     let res: Response;
-    let text: string;
+    let text = "";
+    let streamed: string | null = null;
     try {
       res = await fetch(config.endpoint, {
         method: "POST",
@@ -230,13 +263,21 @@ export async function callLLM(
           model: config.model,
           messages,
           temperature: 0.2,
-          stream: false,
+          stream: true,
           ...(jsonMode ? { response_format: { type: "json_object" } } : {}),
         }),
         signal: controller.signal,
       });
-      text = await res.text();
+      if (res.ok) {
+        let last = 0;
+        const out = await readStream(res, (n) => {
+          if (n - last >= 500) { last = n; onProgress?.(`正在接收模型输出（${n} 字）…`); }
+        });
+        if ("content" in out) streamed = out.content;
+        else text = out.text;
+      } else text = await res.text();
     } catch (e: any) {
+      if (e instanceof LLMError) throw e;
       if (e && e.name === "AbortError") {
         throw new LLMError(`请求超时（${config.timeoutMs / 1000}s），可尝试增大超时或更换模型。`, "timeout");
       }
@@ -270,6 +311,11 @@ export async function callLLM(
       throw new LLMError(`模型服务返回 ${res.status}：${detail}${hint}`, "http");
     }
 
+    if (streamed !== null) {
+      if (!streamed) throw new LLMError("模型返回内容为空。", "empty");
+      return streamed;
+    }
+
     let json: any;
     try {
       json = JSON.parse(text);
@@ -290,7 +336,7 @@ export async function callLLM(
   try {
     return extractJSON(raw);
   } catch (e) {
-    onRetry?.("首次返回非 JSON，正在重试…");
+    onProgress?.("首次返回非 JSON，正在重试…");
     raw = await doFetch("\n重要：上一轮输出不是合法 JSON。这次只输出纯 JSON，不要任何额外文字。");
     return extractJSON(raw);
   }

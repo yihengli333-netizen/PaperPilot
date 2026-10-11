@@ -5,7 +5,14 @@
     name: "CCG API",
     endpoint: "https://ccg-cli.online/v1/chat/completions",
     keyURL: "https://ccg-cli.online/ccg-console/",
-    model: "doubao-seed-2.0-lite"
+    model: "gpt-6.1-sol",
+    /** 设置页的推荐模型，第一项为默认 */
+    presets: [
+      { id: "gpt-6.1-sol", label: "默认 · gpt-6.1-sol" },
+      { id: "gpt-6-luna", label: "性价比 · gpt-6-luna" },
+      { id: "qwen3.8-flash", label: "中文撰写 · qwen3.8-flash" },
+      { id: "claude-opus-5.5", label: "最高强度 · claude-opus-5.5" }
+    ]
   };
   function modelsURL(endpoint) {
     const url = endpoint.trim().replace(/\/+$/, "");
@@ -28,7 +35,7 @@
     [PREFS.model]: RELAY.model,
     [PREFS.language]: "zh",
     [PREFS.maxInputChars]: 1e5,
-    [PREFS.timeoutMs]: 3e5,
+    [PREFS.timeoutMs]: 6e5,
     [PREFS.autoAnalyze]: false,
     [PREFS.highlightCount]: 6
   };
@@ -46,9 +53,10 @@
     id("pp-endpoint").value = g("endpoint", RELAY.endpoint);
     id("pp-apiKey").value = g("apiKey", "");
     id("pp-model").value = g("model", RELAY.model);
+    syncPreset();
     id("pp-language").value = g("language", "zh") === "en" ? "en" : "zh";
     id("pp-maxchars").value = g("maxInputChars", 1e5);
-    id("pp-timeout").value = Math.floor(Number(g("timeoutMs", 3e5)) / 1e3);
+    id("pp-timeout").value = Math.floor(Number(g("timeoutMs", 6e5)) / 1e3);
     id("pp-highlights").value = g("highlightCount", 6);
     id("pp-auto").checked = g("autoAnalyze", false) === true;
   }
@@ -58,7 +66,7 @@
     Zotero.Prefs.set(P + "model", id("pp-model").value.trim(), true);
     Zotero.Prefs.set(P + "language", id("pp-language").value, true);
     Zotero.Prefs.set(P + "maxInputChars", Number(id("pp-maxchars").value) || 1e5, true);
-    Zotero.Prefs.set(P + "timeoutMs", (Number(id("pp-timeout").value) || 300) * 1e3, true);
+    Zotero.Prefs.set(P + "timeoutMs", (Number(id("pp-timeout").value) || 600) * 1e3, true);
     Zotero.Prefs.set(P + "highlightCount", Number(id("pp-highlights").value) || 6, true);
     Zotero.Prefs.set(P + "autoAnalyze", !!id("pp-auto").checked, true);
   }
@@ -144,6 +152,22 @@
       id("pp-models").disabled = false;
     }
   }
+  function syncPreset() {
+    const preset = id("pp-model-preset");
+    if (!preset) return;
+    const model = String(id("pp-model").value || "").trim();
+    preset.value = RELAY.presets.some((p) => p.id === model) ? model : "";
+  }
+  function choosePreset() {
+    const value = id("pp-model-preset").value;
+    if (!value) {
+      id("pp-model").focus?.();
+      return;
+    }
+    id("pp-model").value = value;
+    save();
+    status(`已选择 ${value}`, true);
+  }
   function useDefaultService() {
     id("pp-endpoint").value = RELAY.endpoint;
     if (!id("pp-model").value.trim()) id("pp-model").value = RELAY.model;
@@ -175,6 +199,8 @@
     bind("pp-test", "click", testConnection);
     bind("pp-clear", "click", clearCache);
     bind("pp-models", "click", loadModels);
+    bind("pp-model-preset", "change", choosePreset);
+    bind("pp-model", "input", syncPreset);
     bind("pp-default-service", "click", useDefaultService);
     bind("pp-get-key", "click", () => Zotero.launchURL(RELAY.keyURL));
   }

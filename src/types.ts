@@ -99,7 +99,14 @@ export const RELAY = {
   name: "CCG API",
   endpoint: "https://ccg-cli.online/v1/chat/completions",
   keyURL: "https://ccg-cli.online/ccg-console/",
-  model: "doubao-seed-2.0-lite",
+  model: "gpt-6.1-sol",
+  /** 设置页的推荐模型，第一项为默认 */
+  presets: [
+    { id: "gpt-6.1-sol", label: "默认 · gpt-6.1-sol" },
+    { id: "gpt-6-luna", label: "性价比 · gpt-6-luna" },
+    { id: "qwen3.8-flash", label: "中文撰写 · qwen3.8-flash" },
+    { id: "claude-opus-5.5", label: "最高强度 · claude-opus-5.5" },
+  ],
 } as const;
 
 /** 0.7 之前的默认服务，用于把从未配置过密钥的用户迁移到默认中转站 */
@@ -129,7 +136,7 @@ export const DEFAULT_PREFS: Record<string, string | number | boolean> = {
   [PREFS.model]: RELAY.model,
   [PREFS.language]: "zh",
   [PREFS.maxInputChars]: 100000,
-  [PREFS.timeoutMs]: 300000,
+  [PREFS.timeoutMs]: 600000,
   [PREFS.autoAnalyze]: false,
   [PREFS.highlightCount]: 6,
 };

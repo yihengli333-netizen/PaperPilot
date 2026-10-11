@@ -34,11 +34,21 @@
       <div class="hint">在 CCG API 控制台创建令牌后粘贴到这里。<button id="pp-get-key">获取密钥</button><br/>密钥保存在本机 Zotero 配置中，不会写入笔记或同步内容。</div>
 
       <div class="row">
+        <label for="pp-model-preset">推荐模型</label>
+        <select id="pp-model-preset">
+          <option value="gpt-6.1-sol">默认 · gpt-6.1-sol</option>
+          <option value="gpt-6-luna">性价比 · gpt-6-luna</option>
+          <option value="qwen3.8-flash">中文撰写 · qwen3.8-flash</option>
+          <option value="claude-opus-5.5">最高强度 · claude-opus-5.5</option>
+          <option value="">自定义（在下方填写）</option>
+        </select>
+      </div>
+      <div class="row">
         <label for="pp-model">模型</label>
-        <input type="text" id="pp-model" list="pp-model-list" placeholder="doubao-seed-2.0-lite" />
+        <input type="text" id="pp-model" list="pp-model-list" placeholder="gpt-6.1-sol" />
         <datalist id="pp-model-list"></datalist>
       </div>
-      <div class="hint">默认 doubao-seed-2.0-lite。填好密钥后可读取该密钥能用的全部模型。<button id="pp-models">获取可用模型</button></div>
+      <div class="hint">选择推荐模型会自动填入；也可直接填写其他模型。填好密钥后可读取该密钥能用的全部模型。<button id="pp-models">获取可用模型</button></div>
     </fieldset>
 
     <h2>输出与行为</h2>

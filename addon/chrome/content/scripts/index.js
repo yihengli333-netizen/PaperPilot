@@ -4272,7 +4272,14 @@
     name: "CCG API",
     endpoint: "https://ccg-cli.online/v1/chat/completions",
     keyURL: "https://ccg-cli.online/ccg-console/",
-    model: "doubao-seed-2.0-lite"
+    model: "gpt-6.1-sol",
+    /** 设置页的推荐模型，第一项为默认 */
+    presets: [
+      { id: "gpt-6.1-sol", label: "默认 · gpt-6.1-sol" },
+      { id: "gpt-6-luna", label: "性价比 · gpt-6-luna" },
+      { id: "qwen3.8-flash", label: "中文撰写 · qwen3.8-flash" },
+      { id: "claude-opus-5.5", label: "最高强度 · claude-opus-5.5" }
+    ]
   };
   var LEGACY_SERVICE = { endpoint: "https://api.openai.com/v1/chat/completions", model: "gpt-4o-mini" };
   var PREFS = {
@@ -4292,7 +4299,7 @@
     [PREFS.model]: RELAY.model,
     [PREFS.language]: "zh",
     [PREFS.maxInputChars]: 1e5,
-    [PREFS.timeoutMs]: 3e5,
+    [PREFS.timeoutMs]: 6e5,
     [PREFS.autoAnalyze]: false,
     [PREFS.highlightCount]: 6
   };
@@ -4507,8 +4514,39 @@ ${body}
     }
     throw new LLMError("模型返回的不是合法 JSON，请重试或更换模型。", "parse");
   }
+  async function readStream(res, onChunk) {
+    const type = res.headers?.get?.("content-type") || "";
+    if (!/event-stream/i.test(type) || !res.body?.getReader) return { text: await res.text() };
+    const reader = res.body.getReader();
+    const decoder = new (Zotero.getMainWindow()).TextDecoder();
+    let buffer = "";
+    let content = "";
+    const handle = (line) => {
+      const data = line.replace(/^data:\s?/, "").trim();
+      if (!line.startsWith("data:") || !data || data === "[DONE]") return;
+      let event;
+      try {
+        event = JSON.parse(data);
+      } catch {
+        return;
+      }
+      if (event?.error) throw new LLMError(`模型服务返回错误：${event.error.message || JSON.stringify(event.error).slice(0, 200)}`, "http");
+      const piece = event?.choices?.[0]?.delta?.content ?? event?.choices?.[0]?.text ?? "";
+      if (typeof piece === "string") content += piece;
+    };
+    for (; ; ) {
+      const { done, value } = await reader.read();
+      if (value) buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split(/\r?\n/);
+      buffer = done ? "" : lines.pop() || "";
+      for (const line of lines) handle(line);
+      onChunk?.(content.length);
+      if (done) break;
+    }
+    return { content };
+  }
   var jsonModeSupported = /* @__PURE__ */ new Map();
-  async function callLLM(config, metaText, body, count, onRetry) {
+  async function callLLM(config, metaText, body, count, onProgress) {
     const doFetch = async (extraInstruction, jsonMode = jsonModeSupported.get(config.endpoint) !== false) => {
       const messages = [
         { role: "user", content: userPrompt(taskInstructions(config.language, count) + (extraInstruction || ""), metaText, body) }
@@ -4516,7 +4554,8 @@ ${body}
       const controller = new (Zotero.getMainWindow()).AbortController();
       const timer = setTimeout(() => controller.abort(), config.timeoutMs);
       let res;
-      let text2;
+      let text2 = "";
+      let streamed = null;
       try {
         res = await fetch(config.endpoint, {
           method: "POST",
@@ -4528,13 +4567,24 @@ ${body}
             model: config.model,
             messages,
             temperature: 0.2,
-            stream: false,
+            stream: true,
             ...jsonMode ? { response_format: { type: "json_object" } } : {}
           }),
           signal: controller.signal
         });
-        text2 = await res.text();
+        if (res.ok) {
+          let last2 = 0;
+          const out = await readStream(res, (n) => {
+            if (n - last2 >= 500) {
+              last2 = n;
+              onProgress?.(`正在接收模型输出（${n} 字）…`);
+            }
+          });
+          if ("content" in out) streamed = out.content;
+          else text2 = out.text;
+        } else text2 = await res.text();
       } catch (e) {
+        if (e instanceof LLMError) throw e;
         if (e && e.name === "AbortError") {
           throw new LLMError(`请求超时（${config.timeoutMs / 1e3}s），可尝试增大超时或更换模型。`, "timeout");
         }
@@ -4557,6 +4607,10 @@ ${body}
         const hint = res.status === 400 && /reject|risk|sensitive|inappropriate|content|安全|审核|敏感/i.test(detail) ? "（上游拒绝了请求，常见原因是内容审核；论文含敏感示例时可换一个模型重试）" : res.status === 401 ? "（密钥无效或已过期，请在设置中检查）" : res.status === 402 || /quota|余额|insufficient/i.test(detail) ? "（余额不足，请充值）" : res.status === 503 && /no available channel/i.test(detail) ? "（当前密钥所在分组没有该模型，请点“获取可用模型”换一个）" : res.status === 504 || res.status === 502 ? "（上游服务暂时不可用，请稍后重试或换模型）" : "";
         throw new LLMError(`模型服务返回 ${res.status}：${detail}${hint}`, "http");
       }
+      if (streamed !== null) {
+        if (!streamed) throw new LLMError("模型返回内容为空。", "empty");
+        return streamed;
+      }
       let json;
       try {
         json = JSON.parse(text2);
@@ -4571,7 +4625,7 @@ ${body}
     try {
       return extractJSON(raw);
     } catch (e) {
-      onRetry?.("首次返回非 JSON，正在重试…");
+      onProgress?.("首次返回非 JSON，正在重试…");
       raw = await doFetch("\n重要：上一轮输出不是合法 JSON。这次只输出纯 JSON，不要任何额外文字。");
       return extractJSON(raw);
     }
@@ -21571,7 +21625,13 @@ ${label}${f.verified ? "" : "（原文片段未校验）"}：${f.summary}`
     }
     html(container, `${STYLE}<div class="pp-wrap"><div class="pp-empty">正在分析论文…（视论文长度和模型约需 30 秒到 3 分钟）</div></div>`);
     try {
-      const { result, fromCache } = await analyzeItem(item, { force });
+      const { result, fromCache } = await analyzeItem(item, {
+        force,
+        onProgress: (msg) => {
+          const box = container.querySelector(".pp-empty");
+          if (box) box.textContent = msg;
+        }
+      });
       if (!container.isConnected) return;
       html(container, summaryHTML(result, fromCache));
       addResultButtons(container);

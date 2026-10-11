@@ -19,9 +19,10 @@ function load() {
   id("pp-endpoint").value = g("endpoint", RELAY.endpoint);
   id("pp-apiKey").value = g("apiKey", "");
   id("pp-model").value = g("model", RELAY.model);
+  syncPreset();
   id("pp-language").value = g("language", "zh") === "en" ? "en" : "zh";
   id("pp-maxchars").value = g("maxInputChars", 100000);
-  id("pp-timeout").value = Math.floor(Number(g("timeoutMs", 300000)) / 1000);
+  id("pp-timeout").value = Math.floor(Number(g("timeoutMs", 600000)) / 1000);
   id("pp-highlights").value = g("highlightCount", 6);
   id("pp-auto").checked = g("autoAnalyze", false) === true;
 }
@@ -32,7 +33,7 @@ function save() {
   Zotero.Prefs.set(P + "model", id("pp-model").value.trim(), true);
   Zotero.Prefs.set(P + "language", id("pp-language").value, true);
   Zotero.Prefs.set(P + "maxInputChars", Number(id("pp-maxchars").value) || 100000, true);
-  Zotero.Prefs.set(P + "timeoutMs", (Number(id("pp-timeout").value) || 300) * 1000, true);
+  Zotero.Prefs.set(P + "timeoutMs", (Number(id("pp-timeout").value) || 600) * 1000, true);
   Zotero.Prefs.set(P + "highlightCount", Number(id("pp-highlights").value) || 6, true);
   Zotero.Prefs.set(P + "autoAnalyze", !!id("pp-auto").checked, true);
 }
@@ -116,6 +117,22 @@ async function loadModels() {
   }
 }
 
+/** 推荐模型下拉框与模型输入框保持一致：输入框里不是推荐模型时显示“自定义” */
+function syncPreset() {
+  const preset = id("pp-model-preset");
+  if (!preset) return;
+  const model = String(id("pp-model").value || "").trim();
+  preset.value = RELAY.presets.some((p) => p.id === model) ? model : "";
+}
+
+function choosePreset() {
+  const value = id("pp-model-preset").value;
+  if (!value) { id("pp-model").focus?.(); return; }
+  id("pp-model").value = value;
+  save();
+  status(`已选择 ${value}`, true);
+}
+
 function useDefaultService() {
   id("pp-endpoint").value = RELAY.endpoint;
   if (!id("pp-model").value.trim()) id("pp-model").value = RELAY.model;
@@ -142,6 +159,8 @@ function init() {
   bind("pp-test", "click", testConnection);
   bind("pp-clear", "click", clearCache);
   bind("pp-models", "click", loadModels);
+  bind("pp-model-preset", "change", choosePreset);
+  bind("pp-model", "input", syncPreset);
   bind("pp-default-service", "click", useDefaultService);
   bind("pp-get-key", "click", () => Zotero.launchURL(RELAY.keyURL));
 }

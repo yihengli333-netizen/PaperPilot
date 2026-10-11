@@ -439,7 +439,7 @@ test('unconfigured users move from the old OpenAI default to the relay; configur
     m.initPrefs();
   }
   assert.equal(fresh['extensions.zotero.paperpilot.endpoint'],'https://ccg-cli.online/v1/chat/completions');
-  assert.equal(fresh['extensions.zotero.paperpilot.model'],'doubao-seed-2.0-lite');
+  assert.equal(fresh['extensions.zotero.paperpilot.model'],'gpt-6.1-sol');
   assert.equal(keyed['extensions.zotero.paperpilot.endpoint'],'https://api.openai.com/v1/chat/completions');
   assert.equal(keyed['extensions.zotero.paperpilot.model'],'gpt-4o-mini');
 });
@@ -448,4 +448,14 @@ test('model list URL is derived from the chat endpoint',async()=>{
   assert.equal(m.modelsURL('https://ccg-cli.online/v1/chat/completions'),'https://ccg-cli.online/v1/models');
   assert.equal(m.modelsURL(' http://localhost:11434/v1/chat/completions/ '),'http://localhost:11434/v1/models');
   assert.equal(m.modelsURL('https://example.test/custom'),null);
+});
+test('settings preset options match the relay presets, default first',async()=>{
+  const m=await load('types');
+  const markup=fs.readFileSync(new URL('../addon/chrome/content/settings.xhtml',import.meta.url),'utf8');
+  const select=markup.slice(markup.indexOf('id="pp-model-preset"'),markup.indexOf('</select>'));
+  const options=[...select.matchAll(/<option value="([^"]*)">([^<]*)<\/option>/g)].map(x=>[x[1],x[2]]).filter(([v])=>v);
+  assert.deepEqual(options,JSON.parse(JSON.stringify(m.RELAY.presets.map(p=>[p.id,p.label]))));
+  assert.equal(m.RELAY.presets[0].id,m.RELAY.model);
+  const prefsJs=fs.readFileSync(new URL('../addon/defaults/preferences/prefs.js',import.meta.url),'utf8');
+  assert.ok(prefsJs.includes(`"${m.RELAY.model}"`),'prefs.js default model matches RELAY.model');
 });

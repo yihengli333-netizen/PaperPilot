@@ -1,5 +1,5 @@
-/** Locate a complete quote using Zotero Reader's native character rectangles. */
-import { canon } from "./text";
+/** Locate a quote using Zotero Reader's native character rectangles. */
+import { canon, findSpan } from "./text";
 
 export type PdfRect = [number, number, number, number];
 interface PdfChar {
@@ -15,22 +15,32 @@ export interface LocateResult {
   rects: PdfRect[];
   mode: "textLayer";
   sortIndex: string;
+  /** Matched with small text differences rather than exactly */
+  fuzzy?: boolean;
+  /** Only part of the quote was found (it continues on the neighbouring page) */
+  partial?: boolean;
 }
 export interface LocateContext { reader: any }
 const pageCache = new WeakMap<LocateContext, Map<number, PageData | null>>();
-function matchPage(data: PageData, quote: string, pageIndex: number): LocateResult | "ambiguous" | null {
-  let text = "";
-  const offsets: number[] = [];
-  data.chars.forEach((char, index) => {
-    const unit = char.ignorable ? "" : canon(char.u ?? char.c ?? "");
-    text += unit;
-    for (let i = 0; i < unit.length; i++) offsets.push(index);
-  });
-  const start = text.indexOf(quote);
-  if (start < 0) return null;
-  if (text.indexOf(quote, start + 1) !== -1) return "ambiguous";
-  const first = offsets[start];
-  const last = offsets[start + quote.length - 1];
+const textCache = new WeakMap<PageData, { text: string; offsets: number[] }>();
+
+function pageText(data: PageData) {
+  let cached = textCache.get(data);
+  if (!cached) {
+    let text = "";
+    const offsets: number[] = [];
+    data.chars.forEach((char, index) => {
+      const unit = char.ignorable ? "" : canon(char.u ?? char.c ?? "");
+      text += unit;
+      for (let i = 0; i < unit.length; i++) offsets.push(index);
+    });
+    cached = { text, offsets };
+    textCache.set(data, cached);
+  }
+  return cached;
+}
+
+function rectsFor(data: PageData, first: number, last: number, pageIndex: number): LocateResult | null {
   const rects: PdfRect[] = [];
   for (let i = first; i <= last; i++) {
     const char = data.chars[i];
@@ -52,7 +62,22 @@ function matchPage(data: PageData, quote: string, pageIndex: number): LocateResu
   return {pageIndex, rects, mode:"textLayer", sortIndex:`${pad(pageIndex,5)}|${pad(first,6)}|${pad(top,5)}`};
 }
 
-/** No character coordinates, partial match, or ambiguous location => no annotation. */
+/**
+ * Match on one page. Without a page hint an exact quote occurring twice is ambiguous; with the page known
+ * (from verification) the first occurrence is used. Fuzzy matching tolerates small differences between the
+ * text used for verification and the reader's character data (symbol order, broken glyphs).
+ */
+function matchPage(data: PageData, needle: string, pageIndex: number, hinted: boolean): LocateResult | "ambiguous" | null {
+  const { text, offsets } = pageText(data);
+  const span = findSpan(text, needle, hinted);
+  if (span === "ambiguous") return span;
+  if (!span) return null;
+  const result = rectsFor(data, offsets[span.start], offsets[span.end - 1], pageIndex);
+  if (result && !span.exact) result.fuzzy = true;
+  return result;
+}
+
+/** No character coordinates or an ambiguous location => no annotation. Never guesses a page or rectangle. */
 export async function locateQuote(ctx: LocateContext, quote: string, pageHint: number): Promise<LocateResult | null> {
   const needle = canon(quote || "");
   if (needle.length < 6 || !ctx.reader) return null;
@@ -77,22 +102,35 @@ export async function locateQuote(ctx: LocateContext, quote: string, pageHint: n
     return cache.get(index) || null;
   };
   const hinted = Number.isInteger(pageHint) && pageHint > 0 && pageHint <= total ? pageHint-1 : -1;
-  if (hinted >= 0) {
-    const data = await get(hinted);
-    const match = data && matchPage(data,needle,hinted);
-    if (match === "ambiguous") return null;
-    if (match) return match;
-  }
-  let found: LocateResult | null = null;
-  for (let index=0; index<total; index++) {
-    const data = await get(index);
-    if (!data) continue; // 个别页没有文字层（插图页等）不影响其他页的定位
-    const match = matchPage(data,needle,index);
-    if (match === "ambiguous") return null;
-    if (match) {
-      if (found) return null;
-      found = match;
+  const search = async (target: string): Promise<LocateResult | null> => {
+    if (hinted >= 0) {
+      const data = await get(hinted);
+      const match = data && matchPage(data,target,hinted,true);
+      if (match && match !== "ambiguous") return match;
+    }
+    let found: LocateResult | null = null;
+    for (let index=0; index<total; index++) {
+      const data = await get(index);
+      if (!data) continue; // 个别页没有文字层（插图页等）不影响其他页的定位
+      const match = matchPage(data,target,index,false);
+      if (match === "ambiguous") return null;
+      if (match) {
+        // The same sentence on two pages cannot be placed reliably; a fuzzy hit yields to an exact one.
+        if (found && !found.fuzzy && !match.fuzzy) return null;
+        if (!found || (found.fuzzy && !match.fuzzy)) found = match;
+      }
+    }
+    return found;
+  };
+  const whole = await search(needle);
+  if (whole) return whole;
+  // A quote that runs onto the next page: highlight the part that is on a single page.
+  if (needle.length >= 60) {
+    const cut = Math.floor(needle.length * 0.55);
+    for (const part of [needle.slice(0, cut), needle.slice(needle.length - cut)]) {
+      const found = await search(part);
+      if (found) return {...found, partial: true};
     }
   }
-  return found;
+  return null;
 }

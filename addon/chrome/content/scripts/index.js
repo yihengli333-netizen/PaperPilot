@@ -4301,7 +4301,8 @@
     [PREFS.maxInputChars]: 1e5,
     [PREFS.timeoutMs]: 6e5,
     [PREFS.autoAnalyze]: false,
-    [PREFS.highlightCount]: 6
+    /** 0 = 自动（按论文篇幅和内容决定） */
+    [PREFS.highlightCount]: 0
   };
 
   // src/prefs.ts
@@ -4310,7 +4311,7 @@
     return Zotero.Prefs.get(PREFIX + key, true);
   }
   var LEGACY_DEFAULTS = [[PREFS.maxInputChars, 3e4], [PREFS.timeoutMs, 6e4]];
-  var PREFS_VERSION = 3;
+  var PREFS_VERSION = 4;
   function initPrefs() {
     const version = Number(Zotero.Prefs.get(PREFIX + PREFS.prefsVersion, true)) || 1;
     if (version < PREFS_VERSION) {
@@ -4322,6 +4323,9 @@
       if (version < 3 && !String(Zotero.Prefs.get(PREFIX + PREFS.apiKey, true) || "").trim()) {
         if (Zotero.Prefs.get(PREFIX + PREFS.endpoint, true) === LEGACY_SERVICE.endpoint) Zotero.Prefs.set(PREFIX + PREFS.endpoint, RELAY.endpoint, true);
         if (Zotero.Prefs.get(PREFIX + PREFS.model, true) === LEGACY_SERVICE.model) Zotero.Prefs.set(PREFIX + PREFS.model, RELAY.model, true);
+      }
+      if (version < 4 && Number(Zotero.Prefs.get(PREFIX + PREFS.highlightCount, true)) === 6) {
+        Zotero.Prefs.set(PREFIX + PREFS.highlightCount, 0, true);
       }
       Zotero.Prefs.set(PREFIX + PREFS.prefsVersion, PREFS_VERSION, true);
     }
@@ -4340,7 +4344,7 @@
       language: getPref(PREFS.language) === "en" ? "en" : "zh",
       maxInputChars: Number(getPref(PREFS.maxInputChars)) || Number(DEFAULT_PREFS[PREFS.maxInputChars]),
       timeoutMs: Number(getPref(PREFS.timeoutMs)) || Number(DEFAULT_PREFS[PREFS.timeoutMs]),
-      highlightCount: Number(getPref(PREFS.highlightCount)) || Number(DEFAULT_PREFS[PREFS.highlightCount])
+      highlightCount: Math.max(0, Number(getPref(PREFS.highlightCount)) || 0)
     };
   }
   function isConfigured() {
@@ -4435,7 +4439,18 @@
     });
     return { text: parts.join(""), truncated: true, partial: true, omitted };
   }
-  function taskInstructions(lang, count) {
+  function autoHighlightRange(chars3) {
+    if (chars3 < 25e3) return [3, 5];
+    if (chars3 < 6e4) return [5, 8];
+    return [7, 12];
+  }
+  function highlightRule(count, chars3) {
+    const what = "最值得深入阅读的位置（优先：核心公式/关键假设/主实验数据/消融对比/作者承认的重大局限）。避免罗列次要细节或重复四大类别已覆盖的内容。";
+    if (count > 0) return `5. highlights 精选 ${count} 条${what}`;
+    const [lo, hi] = autoHighlightRange(chars3);
+    return `5. highlights 由你判断条数，在 ${lo}-${hi} 条之间：贡献点多、实验和关键数据多的论文取上限，内容集中的取下限，宁缺毋滥。精选${what}`;
+  }
+  function taskInstructions(lang, count, chars3) {
     const langName = lang === "zh" ? "简体中文" : "English";
     return [
       "任务：分析下方论文，按要求输出 JSON。",
@@ -4445,7 +4460,7 @@
       '3. 若正文中找不到对应内容，summary 必须写 "未在正文中找到"，location 与 quote 填空字符串。',
       "4. summary 每条控制在 1-2 句，直接陈述论文说了什么，不要评价好坏。",
       "4a. 四个类别各可附 evidence：0-2 条补充证据（结构与主字段相同），用于主 quote 之外同样关键的原文，例如另一组主实验数据、第二个关键假设。没有就给空数组，不要重复主 quote。",
-      `5. highlights 精选 ${count} 条最值得深入阅读的位置（优先：核心公式/关键假设/主实验数据/消融对比/作者承认的重大局限）。避免罗列次要细节或重复四大类别已覆盖的内容。`,
+      highlightRule(count, chars3),
       "6. 只输出 JSON，不要输出任何解释性文字或 markdown 代码块。",
       "",
       "JSON 结构：",
@@ -4549,7 +4564,7 @@ ${body}
   async function callLLM(config, metaText, body, count, onProgress) {
     const doFetch = async (extraInstruction, jsonMode = jsonModeSupported.get(config.endpoint) !== false) => {
       const messages = [
-        { role: "user", content: userPrompt(taskInstructions(config.language, count) + (extraInstruction || ""), metaText, body) }
+        { role: "user", content: userPrompt(taskInstructions(config.language, count, body.length) + (extraInstruction || ""), metaText, body) }
       ];
       const controller = new (Zotero.getMainWindow()).AbortController();
       const timer = setTimeout(() => controller.abort(), config.timeoutMs);
@@ -4660,6 +4675,226 @@ ${body}
     };
   }
 
+  // src/text.ts
+  var QUOTES = {
+    "‘": "'",
+    "’": "'",
+    "‚": "'",
+    "‛": "'",
+    "′": "'",
+    "“": '"',
+    "”": '"',
+    "„": '"',
+    "‟": '"',
+    "″": '"'
+  };
+  var DROP = /[\s\u0000-\u001f\u007f\u00ad\u2010\u2011\u2012\u2013\u2014\u2015\u2212-]/u;
+  function canonChar(ch) {
+    let out = "";
+    for (const c of ch.normalize("NFKC")) {
+      if (DROP.test(c)) continue;
+      out += (QUOTES[c] ?? c).toLowerCase();
+    }
+    return out;
+  }
+  function canon(s) {
+    let out = "";
+    for (const ch of s || "") out += canonChar(ch);
+    return out;
+  }
+  function canonWithMap(s) {
+    let text2 = "";
+    const map = [];
+    let i3 = 0;
+    for (const ch of s) {
+      const unit = canonChar(ch);
+      text2 += unit;
+      for (let k = 0; k < unit.length; k++) map.push(i3);
+      i3 += ch.length;
+    }
+    return { text: text2, map };
+  }
+  var FUZZY_MIN_SIMILARITY = 0.9;
+  var FUZZY_MIN_LENGTH = 20;
+  function bestSubstring(hay, needle) {
+    const m = needle.length;
+    let prev = new Array(m + 1);
+    let cur = new Array(m + 1);
+    for (let i3 = 0; i3 <= m; i3++) prev[i3] = i3;
+    let best = { dist: m, end: 0 };
+    for (let j = 1; j <= hay.length; j++) {
+      cur[0] = 0;
+      const hc = hay[j - 1];
+      for (let i3 = 1; i3 <= m; i3++) {
+        const sub = prev[i3 - 1] + (needle[i3 - 1] === hc ? 0 : 1);
+        cur[i3] = Math.min(sub, prev[i3] + 1, cur[i3 - 1] + 1);
+      }
+      if (cur[m] < best.dist) best = { dist: cur[m], end: j };
+      [prev, cur] = [cur, prev];
+    }
+    return best;
+  }
+  function bestStart(hay, needle, end) {
+    const window = hay.slice(Math.max(0, end - needle.length * 2), end);
+    const r = bestSubstring([...window].reverse().join(""), [...needle].reverse().join(""));
+    return end - r.end;
+  }
+  function findSpan(hay, needle, firstOnTie = true) {
+    if (needle.length < 6) return null;
+    const at = hay.indexOf(needle);
+    if (at >= 0) {
+      if (!firstOnTie && hay.indexOf(needle, at + 1) !== -1) return "ambiguous";
+      return { start: at, end: at + needle.length, exact: true, similarity: 1 };
+    }
+    if (needle.length < FUZZY_MIN_LENGTH) return null;
+    const gram = 8;
+    const votes = /* @__PURE__ */ new Map();
+    for (let i3 = 0; i3 + gram <= needle.length; i3 += 4) {
+      const g = needle.slice(i3, i3 + gram);
+      let from = 0;
+      let hits = 0;
+      while (hits < 50) {
+        const p = hay.indexOf(g, from);
+        if (p < 0) break;
+        const bucket = Math.round((p - i3) / 16);
+        votes.set(bucket, (votes.get(bucket) || 0) + 1);
+        from = p + 1;
+        hits++;
+      }
+    }
+    const candidates = [...votes.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5);
+    let best = null;
+    const slack = Math.ceil(needle.length * 0.2) + 16;
+    for (const [bucket] of candidates) {
+      const lo = Math.max(0, bucket * 16 - slack);
+      const hi = Math.min(hay.length, bucket * 16 + needle.length + slack);
+      const region = hay.slice(lo, hi);
+      const r = bestSubstring(region, needle);
+      if (!best || r.dist < best.dist) {
+        best = { dist: r.dist, start: lo + bestStart(region, needle, r.end), end: lo + r.end };
+      }
+    }
+    if (!best || best.end <= best.start) return null;
+    const similarity = 1 - best.dist / needle.length;
+    if (similarity < FUZZY_MIN_SIMILARITY) return null;
+    return { start: best.start, end: best.end, exact: false, similarity };
+  }
+  function dehyphenate(s) {
+    return s.replace(new RegExp("(\\p{L})[-\\u00ad\\u2010] (\\p{Ll})", "gu"), "$1$2");
+  }
+  function matchQuote(source, quote) {
+    const hay = canonWithMap(source);
+    const found = findSpan(hay.text, canon(quote));
+    if (!found || found === "ambiguous") return null;
+    const last2 = hay.map[found.end - 1];
+    const stop = last2 + ((source.codePointAt(last2) ?? 0) > 65535 ? 2 : 1);
+    const text2 = dehyphenate(source.slice(hay.map[found.start], stop).replace(/\s+/g, " ").trim());
+    return { text: text2, exact: found.exact, similarity: found.similarity };
+  }
+
+  // src/geo.ts
+  var pageCache = /* @__PURE__ */ new WeakMap();
+  var textCache = /* @__PURE__ */ new WeakMap();
+  function pageText(data) {
+    let cached = textCache.get(data);
+    if (!cached) {
+      let text2 = "";
+      const offsets = [];
+      data.chars.forEach((char, index) => {
+        const unit = char.ignorable ? "" : canon(char.u ?? char.c ?? "");
+        text2 += unit;
+        for (let i3 = 0; i3 < unit.length; i3++) offsets.push(index);
+      });
+      cached = { text: text2, offsets };
+      textCache.set(data, cached);
+    }
+    return cached;
+  }
+  function rectsFor(data, first, last2, pageIndex) {
+    const rects = [];
+    for (let i3 = first; i3 <= last2; i3++) {
+      const char = data.chars[i3];
+      if (char.ignorable) continue;
+      if (!char.rect || char.rect.length !== 4 || !char.rect.every(Number.isFinite)) return null;
+      const [a, b, c, d] = char.rect;
+      const rect = [Math.min(a, c), Math.min(b, d), Math.max(a, c), Math.max(b, d)];
+      if (rect[0] === rect[2] || rect[1] === rect[3]) continue;
+      const prev = rects.at(-1);
+      if (prev && !data.chars[i3 - 1]?.lineBreakAfter && Math.abs(prev[1] - rect[1]) < 1.5 && Math.abs(prev[3] - rect[3]) < 1.5 && rect[0] >= prev[0] && rect[0] - prev[2] <= 8) {
+        prev[2] = Math.max(prev[2], rect[2]);
+      } else rects.push(rect);
+    }
+    if (!rects.length) return null;
+    const top = Math.max(0, Math.floor(data.viewBox[3] - Math.max(...rects.map((r) => r[3]))));
+    const pad = (n, width) => String(n).padStart(width, "0").slice(0, width);
+    return { pageIndex, rects, mode: "textLayer", sortIndex: `${pad(pageIndex, 5)}|${pad(first, 6)}|${pad(top, 5)}` };
+  }
+  function matchPage(data, needle, pageIndex, hinted) {
+    const { text: text2, offsets } = pageText(data);
+    const span = findSpan(text2, needle, hinted);
+    if (span === "ambiguous") return span;
+    if (!span) return null;
+    const result = rectsFor(data, offsets[span.start], offsets[span.end - 1], pageIndex);
+    if (result && !span.exact) result.fuzzy = true;
+    return result;
+  }
+  async function locateQuote(ctx, quote, pageHint) {
+    const needle = canon(quote || "");
+    if (needle.length < 6 || !ctx.reader) return null;
+    const view = ctx.reader._internalReader?._primaryView;
+    const pdf = view?._iframeWindow?.PDFViewerApplication?.pdfDocument;
+    if (!pdf || typeof pdf.getPageData !== "function") return null;
+    const total = pdf.numPages;
+    if (!Number.isInteger(total) || total < 1) return null;
+    let cache = pageCache.get(ctx);
+    if (!cache) {
+      cache = /* @__PURE__ */ new Map();
+      pageCache.set(ctx, cache);
+    }
+    const get = async (index) => {
+      if (!cache.has(index)) {
+        try {
+          const args = typeof Components !== "undefined" && Components.utils?.cloneInto ? Components.utils.cloneInto({ pageIndex: index }, view._iframeWindow) : { pageIndex: index };
+          const data = await pdf.getPageData(args);
+          cache.set(index, Array.isArray(data?.chars) && data?.viewBox?.length === 4 ? data : null);
+        } catch (e) {
+          throw new Error(`读取 PDF 第 ${index + 1} 页坐标失败：${String(e)}`);
+        }
+      }
+      return cache.get(index) || null;
+    };
+    const hinted = Number.isInteger(pageHint) && pageHint > 0 && pageHint <= total ? pageHint - 1 : -1;
+    const search = async (target) => {
+      if (hinted >= 0) {
+        const data = await get(hinted);
+        const match = data && matchPage(data, target, hinted, true);
+        if (match && match !== "ambiguous") return match;
+      }
+      let found = null;
+      for (let index = 0; index < total; index++) {
+        const data = await get(index);
+        if (!data) continue;
+        const match = matchPage(data, target, index, false);
+        if (match === "ambiguous") return null;
+        if (match) {
+          if (found && !found.fuzzy && !match.fuzzy) return null;
+          if (!found || found.fuzzy && !match.fuzzy) found = match;
+        }
+      }
+      return found;
+    };
+    const whole = await search(needle);
+    if (whole) return whole;
+    if (needle.length >= 60) {
+      const cut = Math.floor(needle.length * 0.55);
+      for (const part of [needle.slice(0, cut), needle.slice(needle.length - cut)]) {
+        const found = await search(part);
+        if (found) return { ...found, partial: true };
+      }
+    }
+    return null;
+  }
+
   // src/nav.ts
   function findReader(itemID) {
     try {
@@ -4696,14 +4931,20 @@ ${body}
       if (timer) clearTimeout(timer);
     }
   }
-  async function navigateReader(reader, pageIndex) {
+  async function navigateReader(reader, pageIndex, position) {
     const candidates = [reader];
     const internal = reader._internalReader || reader._reader || null;
     if (internal) candidates.push(internal);
+    let location = position ? { position } : { pageIndex };
+    try {
+      const win = reader._iframeWindow || internal?._primaryView?._iframeWindow;
+      if (win && typeof Components !== "undefined" && Components.utils?.cloneInto) location = Components.utils.cloneInto(location, win);
+    } catch (e) {
+    }
     for (const target of candidates) {
       try {
         if (typeof target.navigate === "function") {
-          await target.navigate({ pageIndex });
+          await target.navigate(location);
           return true;
         }
       } catch (e) {
@@ -4774,150 +5015,47 @@ ${body}
     } catch (e) {
     }
   }
+  function searchQuery(quote) {
+    const clean2 = dehyphenate(quote.replace(/\s+/g, " ").trim());
+    if (clean2.length <= 60) return clean2;
+    const cut = clean2.slice(0, 60);
+    const space = cut.lastIndexOf(" ");
+    return space > 20 ? cut.slice(0, space) : cut;
+  }
   async function gotoLocation(opts) {
     const { itemID, page, quote, location } = opts;
     copyToClipboard(quote);
     const pageIndex = Math.max(0, (page || 1) - 1);
-    let reader = findReader(itemID);
-    if (!reader) {
-      try {
-        await Zotero.Reader.open(itemID, { pageIndex });
-        reader = findReader(itemID);
-      } catch (e) {
-        reader = null;
-      }
-    } else {
-      if (page) await navigateReader(reader, pageIndex);
-      try {
-        const win = Zotero.getMainWindow();
-        if (win && reader.tabID && win.Zotero_Tabs?.select) {
-          win.Zotero_Tabs.select(reader.tabID);
-        }
-      } catch (e) {
-      }
+    let reader = null;
+    try {
+      reader = await ensureReader(itemID);
+    } catch (e) {
+      reader = findReader(itemID);
     }
     if (!reader) {
-      copyToClipboard(quote);
       toast("PaperPilot", `未能打开 PDF，原文片段已复制：${quote.slice(0, 60)}…`);
       return false;
     }
-    const highlighted = await tryFind(reader, quote);
-    if (highlighted) {
-      toast("PaperPilot", `已定位：${location || "目标页"}`);
-    } else {
-      copyToClipboard(quote);
-      toast("PaperPilot", `${location || "目标页"} · 片段已复制到剪贴板`);
+    try {
+      const win = Zotero.getMainWindow();
+      if (win && reader.tabID && win.Zotero_Tabs?.select) win.Zotero_Tabs.select(reader.tabID);
+    } catch (e) {
     }
+    if (quote) {
+      try {
+        const loc2 = await locateQuote({ reader }, quote, page);
+        if (loc2 && await navigateReader(reader, loc2.pageIndex, { pageIndex: loc2.pageIndex, rects: loc2.rects })) {
+          toast("PaperPilot", `已定位到第 ${loc2.pageIndex + 1} 页` + (loc2.partial ? "（句子跨页，已定位到其中一部分）" : ""));
+          return true;
+        }
+      } catch (e) {
+        Zotero.debug("[PaperPilot] 坐标定位失败: " + e);
+      }
+    }
+    if (page) await navigateReader(reader, pageIndex);
+    const highlighted = await tryFind(reader, searchQuery(quote));
+    toast("PaperPilot", highlighted ? `${location || (page ? `第 ${page} 页` : "目标页")} · 已搜索原文开头，片段已复制` : `${location || "目标页"} · 片段已复制到剪贴板，可用 Ctrl+F 搜索`);
     return true;
-  }
-
-  // src/text.ts
-  var QUOTES = {
-    "‘": "'",
-    "’": "'",
-    "‚": "'",
-    "‛": "'",
-    "′": "'",
-    "“": '"',
-    "”": '"',
-    "„": '"',
-    "‟": '"',
-    "″": '"'
-  };
-  var DROP = /[\s\u0000-\u001f\u007f\u00ad\u2010\u2011\u2012\u2013\u2014\u2015\u2212-]/u;
-  function canonChar(ch) {
-    let out = "";
-    for (const c of ch.normalize("NFKC")) {
-      if (DROP.test(c)) continue;
-      out += (QUOTES[c] ?? c).toLowerCase();
-    }
-    return out;
-  }
-  function canon(s) {
-    let out = "";
-    for (const ch of s || "") out += canonChar(ch);
-    return out;
-  }
-  function canonWithMap(s) {
-    let text2 = "";
-    const map = [];
-    let i3 = 0;
-    for (const ch of s) {
-      const unit = canonChar(ch);
-      text2 += unit;
-      for (let k = 0; k < unit.length; k++) map.push(i3);
-      i3 += ch.length;
-    }
-    return { text: text2, map };
-  }
-  var FUZZY_MIN_SIMILARITY = 0.9;
-  var FUZZY_MIN_LENGTH = 20;
-  function bestSubstring(hay, needle) {
-    const m = needle.length;
-    let prev = new Array(m + 1);
-    let cur = new Array(m + 1);
-    for (let i3 = 0; i3 <= m; i3++) prev[i3] = i3;
-    let best = { dist: m, end: 0 };
-    for (let j = 1; j <= hay.length; j++) {
-      cur[0] = 0;
-      const hc = hay[j - 1];
-      for (let i3 = 1; i3 <= m; i3++) {
-        const sub = prev[i3 - 1] + (needle[i3 - 1] === hc ? 0 : 1);
-        cur[i3] = Math.min(sub, prev[i3] + 1, cur[i3 - 1] + 1);
-      }
-      if (cur[m] < best.dist) best = { dist: cur[m], end: j };
-      [prev, cur] = [cur, prev];
-    }
-    return best;
-  }
-  function bestStart(hay, needle, end) {
-    const window = hay.slice(Math.max(0, end - needle.length * 2), end);
-    const r = bestSubstring([...window].reverse().join(""), [...needle].reverse().join(""));
-    return end - r.end;
-  }
-  function matchQuote(source, quote) {
-    const needle = canon(quote);
-    if (needle.length < 6) return null;
-    const hay = canonWithMap(source);
-    const span = (start, end) => {
-      const last2 = hay.map[end - 1];
-      const stop = last2 + ((source.codePointAt(last2) ?? 0) > 65535 ? 2 : 1);
-      return source.slice(hay.map[start], stop).replace(/\s+/g, " ").trim();
-    };
-    const at = hay.text.indexOf(needle);
-    if (at >= 0) return { text: span(at, at + needle.length), exact: true, similarity: 1 };
-    if (needle.length < FUZZY_MIN_LENGTH) return null;
-    const gram = 8;
-    const votes = /* @__PURE__ */ new Map();
-    for (let i3 = 0; i3 + gram <= needle.length; i3 += 4) {
-      const g = needle.slice(i3, i3 + gram);
-      let from = 0;
-      let hits = 0;
-      while (hits < 50) {
-        const p = hay.text.indexOf(g, from);
-        if (p < 0) break;
-        const bucket = Math.round((p - i3) / 16);
-        votes.set(bucket, (votes.get(bucket) || 0) + 1);
-        from = p + 1;
-        hits++;
-      }
-    }
-    const candidates = [...votes.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5);
-    let best = null;
-    const slack = Math.ceil(needle.length * 0.2) + 16;
-    for (const [bucket] of candidates) {
-      const lo = Math.max(0, bucket * 16 - slack);
-      const hi = Math.min(hay.text.length, bucket * 16 + needle.length + slack);
-      const region = hay.text.slice(lo, hi);
-      const r = bestSubstring(region, needle);
-      if (!best || r.dist < best.dist) {
-        best = { dist: r.dist, start: lo + bestStart(region, needle, r.end), end: lo + r.end };
-      }
-    }
-    if (!best || best.end <= best.start) return null;
-    const similarity = 1 - best.dist / needle.length;
-    if (similarity < FUZZY_MIN_SIMILARITY) return null;
-    return { text: span(best.start, best.end), exact: false, similarity };
   }
 
   // src/parser.ts
@@ -5236,85 +5374,6 @@ ${p.text}`).join("\n\n") : normalize(fullText),
     }
     parts.push("", "---", "## 我的理解与疑问", "- ", "- ");
     return parts.join("\n");
-  }
-
-  // src/geo.ts
-  var pageCache = /* @__PURE__ */ new WeakMap();
-  function matchPage(data, quote, pageIndex) {
-    let text2 = "";
-    const offsets = [];
-    data.chars.forEach((char, index) => {
-      const unit = char.ignorable ? "" : canon(char.u ?? char.c ?? "");
-      text2 += unit;
-      for (let i3 = 0; i3 < unit.length; i3++) offsets.push(index);
-    });
-    const start = text2.indexOf(quote);
-    if (start < 0) return null;
-    if (text2.indexOf(quote, start + 1) !== -1) return "ambiguous";
-    const first = offsets[start];
-    const last2 = offsets[start + quote.length - 1];
-    const rects = [];
-    for (let i3 = first; i3 <= last2; i3++) {
-      const char = data.chars[i3];
-      if (char.ignorable) continue;
-      if (!char.rect || char.rect.length !== 4 || !char.rect.every(Number.isFinite)) return null;
-      const [a, b, c, d] = char.rect;
-      const rect = [Math.min(a, c), Math.min(b, d), Math.max(a, c), Math.max(b, d)];
-      if (rect[0] === rect[2] || rect[1] === rect[3]) continue;
-      const prev = rects.at(-1);
-      if (prev && !data.chars[i3 - 1]?.lineBreakAfter && Math.abs(prev[1] - rect[1]) < 1.5 && Math.abs(prev[3] - rect[3]) < 1.5 && rect[0] >= prev[0] && rect[0] - prev[2] <= 8) {
-        prev[2] = Math.max(prev[2], rect[2]);
-      } else rects.push(rect);
-    }
-    if (!rects.length) return null;
-    const top = Math.max(0, Math.floor(data.viewBox[3] - Math.max(...rects.map((r) => r[3]))));
-    const pad = (n, width) => String(n).padStart(width, "0").slice(0, width);
-    return { pageIndex, rects, mode: "textLayer", sortIndex: `${pad(pageIndex, 5)}|${pad(first, 6)}|${pad(top, 5)}` };
-  }
-  async function locateQuote(ctx, quote, pageHint) {
-    const needle = canon(quote || "");
-    if (needle.length < 6 || !ctx.reader) return null;
-    const view = ctx.reader._internalReader?._primaryView;
-    const pdf = view?._iframeWindow?.PDFViewerApplication?.pdfDocument;
-    if (!pdf || typeof pdf.getPageData !== "function") return null;
-    const total = pdf.numPages;
-    if (!Number.isInteger(total) || total < 1) return null;
-    let cache = pageCache.get(ctx);
-    if (!cache) {
-      cache = /* @__PURE__ */ new Map();
-      pageCache.set(ctx, cache);
-    }
-    const get = async (index) => {
-      if (!cache.has(index)) {
-        try {
-          const args = typeof Components !== "undefined" && Components.utils?.cloneInto ? Components.utils.cloneInto({ pageIndex: index }, view._iframeWindow) : { pageIndex: index };
-          const data = await pdf.getPageData(args);
-          cache.set(index, Array.isArray(data?.chars) && data?.viewBox?.length === 4 ? data : null);
-        } catch (e) {
-          throw new Error(`读取 PDF 第 ${index + 1} 页坐标失败：${String(e)}`);
-        }
-      }
-      return cache.get(index) || null;
-    };
-    const hinted = Number.isInteger(pageHint) && pageHint > 0 && pageHint <= total ? pageHint - 1 : -1;
-    if (hinted >= 0) {
-      const data = await get(hinted);
-      const match = data && matchPage(data, needle, hinted);
-      if (match === "ambiguous") return null;
-      if (match) return match;
-    }
-    let found = null;
-    for (let index = 0; index < total; index++) {
-      const data = await get(index);
-      if (!data) continue;
-      const match = matchPage(data, needle, index);
-      if (match === "ambiguous") return null;
-      if (match) {
-        if (found) return null;
-        found = match;
-      }
-    }
-    return found;
   }
 
   // src/annotate.ts

@@ -429,7 +429,7 @@ test('legacy default limits are migrated once; customised values are kept',async
   assert.equal(store['extensions.zotero.paperpilot.timeoutMs'],90000);
   store['extensions.zotero.paperpilot.maxInputChars']=30000;m.initPrefs();
   assert.equal(store['extensions.zotero.paperpilot.maxInputChars'],30000,'a later explicit 30000 is respected');
-  assert.equal(m.getConfig().highlightCount,6);
+  assert.equal(m.getConfig().highlightCount,0,'auto by default');
 });
 test('unconfigured users move from the old OpenAI default to the relay; configured keys are untouched',async()=>{
   const fresh={'extensions.zotero.paperpilot.endpoint':'https://api.openai.com/v1/chat/completions','extensions.zotero.paperpilot.model':'gpt-4o-mini','extensions.zotero.paperpilot.apiKey':''};
@@ -458,4 +458,48 @@ test('settings preset options match the relay presets, default first',async()=>{
   assert.equal(m.RELAY.presets[0].id,m.RELAY.model);
   const prefsJs=fs.readFileSync(new URL('../addon/defaults/preferences/prefs.js',import.meta.url),'utf8');
   assert.ok(prefsJs.includes(`"${m.RELAY.model}"`),'prefs.js default model matches RELAY.model');
+});
+test('automatic highlight count gives the model a range scaled to paper length',async()=>{
+  const {calls,z,extra}=llmEnv([reply('{"a":1}'),reply('{"a":1}'),reply('{"a":1}')]);
+  const m=await load('llm',z,extra);
+  assert.deepEqual([...m.autoHighlightRange(10000)],[3,5]);
+  assert.deepEqual([...m.autoHighlightRange(40000)],[5,8]);
+  assert.deepEqual([...m.autoHighlightRange(100000)],[7,12]);
+  await m.callLLM(cfg,'meta','x'.repeat(40000),0);
+  assert.match(calls[0].body.messages[0].content,/highlights 由你判断条数，在 5-8 条之间/);
+  await m.callLLM(cfg,'meta','x'.repeat(40000),4);
+  assert.match(calls[1].body.messages[0].content,/highlights 精选 4 条/);
+  assert.equal(calls[1].body.messages.length,1,'instructions travel in the user message');
+});
+test('old default of 6 highlights migrates to automatic; explicit choices are kept',async()=>{
+  for(const [before,after] of [[6,0],[8,8]]) {
+    const store={'extensions.zotero.paperpilot.prefsVersion':3,'extensions.zotero.paperpilot.highlightCount':before};
+    const m=await load('prefs',{Prefs:{get:k=>store[k],set:(k,v)=>{store[k]=v;}}});
+    m.initPrefs();
+    assert.equal(store['extensions.zotero.paperpilot.highlightCount'],after);
+  }
+});
+test('geo tolerates small differences between verified text and reader characters',async()=>{
+  const m=await load('geo');
+  // Reader orders a subscript differently from the extracted text: "W0 ∈ Rd×k" vs "W ∈ R0d×k".
+  const page='For a pre-trained weight matrix W ∈ R0d×k, we constrain its update with a low-rank decomposition.';
+  const loc=await m.locateQuote({reader:reader([page])},'For a pre-trained weight matrix W0 ∈ Rd×k, we constrain its update with a low-rank decomposition.',1);
+  assert.equal(loc?.pageIndex,0);assert.equal(loc.fuzzy,true);
+});
+test('a quote continuing onto the next page is located by its part on one page',async()=>{
+  const m=await load('geo');
+  const first='The first half of this long sentence ends at the bottom of page one and then';
+  const second='continues at the top of page two with the remaining clause of the claim.';
+  const loc=await m.locateQuote({reader:reader([first,second])},first+' '+second,0);
+  assert.ok(loc && loc.partial);
+});
+test('with the page known, a sentence repeated on that page is still located',async()=>{
+  const m=await load('geo');
+  const loc=await m.locateQuote({reader:reader([quote+' '+quote])},quote,1);
+  assert.equal(loc?.pageIndex,0);
+});
+test('search fallback uses a short dehyphenated opening of the quote',async()=>{
+  const m=await load('nav');
+  assert.equal(m.searchQuery('We show that the meth- od reduces error by 12% on the held-out set of the benchmark.'),'We show that the method reduces error by 12% on the');
+  assert.equal(m.searchQuery('Short quote.'),'Short quote.');
 });

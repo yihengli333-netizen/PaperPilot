@@ -106,7 +106,21 @@ export function condenseText(text: string, max: number): { text: string; truncat
  * 任务说明。放在 user 消息里而不是 system 消息：部分中转渠道会丢弃或替换 system 消息，
  * 且会对“你是…”式的角色设定拒绝执行，所以只写任务本身。
  */
-function taskInstructions(lang: "zh" | "en", count: number): string {
+/** 自动模式下按发送正文的长度给出关注点条数范围，具体条数由模型按贡献点和实验数量在范围内决定 */
+export function autoHighlightRange(chars: number): [number, number] {
+  if (chars < 25000) return [3, 5];
+  if (chars < 60000) return [5, 8];
+  return [7, 12];
+}
+
+function highlightRule(count: number, chars: number): string {
+  const what = "最值得深入阅读的位置（优先：核心公式/关键假设/主实验数据/消融对比/作者承认的重大局限）。避免罗列次要细节或重复四大类别已覆盖的内容。";
+  if (count > 0) return `5. highlights 精选 ${count} 条${what}`;
+  const [lo, hi] = autoHighlightRange(chars);
+  return `5. highlights 由你判断条数，在 ${lo}-${hi} 条之间：贡献点多、实验和关键数据多的论文取上限，内容集中的取下限，宁缺毋滥。精选${what}`;
+}
+
+function taskInstructions(lang: "zh" | "en", count: number, chars: number): string {
   const langName = lang === "zh" ? "简体中文" : "English";
   return [
     "任务：分析下方论文，按要求输出 JSON。",
@@ -116,7 +130,7 @@ function taskInstructions(lang: "zh" | "en", count: number): string {
     "3. 若正文中找不到对应内容，summary 必须写 \"未在正文中找到\"，location 与 quote 填空字符串。",
     "4. summary 每条控制在 1-2 句，直接陈述论文说了什么，不要评价好坏。",
     "4a. 四个类别各可附 evidence：0-2 条补充证据（结构与主字段相同），用于主 quote 之外同样关键的原文，例如另一组主实验数据、第二个关键假设。没有就给空数组，不要重复主 quote。",
-    `5. highlights 精选 ${count} 条最值得深入阅读的位置（优先：核心公式/关键假设/主实验数据/消融对比/作者承认的重大局限）。避免罗列次要细节或重复四大类别已覆盖的内容。`,
+    highlightRule(count, chars),
     "6. 只输出 JSON，不要输出任何解释性文字或 markdown 代码块。",
     "",
     "JSON 结构：",
@@ -245,7 +259,7 @@ export async function callLLM(
   // 每次请求单独计时：重试不应继承上一次已消耗的时间
   const doFetch = async (extraInstruction?: string, jsonMode = jsonModeSupported.get(config.endpoint) !== false): Promise<string> => {
     const messages: any[] = [
-      { role: "user", content: userPrompt(taskInstructions(config.language, count) + (extraInstruction || ""), metaText, body) },
+      { role: "user", content: userPrompt(taskInstructions(config.language, count, body.length) + (extraInstruction || ""), metaText, body) },
     ];
     const controller = new (Zotero.getMainWindow().AbortController)();
     const timer = setTimeout(() => controller.abort(), config.timeoutMs);

@@ -8,7 +8,7 @@ export function getPref(key: string): any {
 
 /** 0.7 之前的默认值；仍等于旧默认值的设置随版本升级到新默认值，用户改过的值保留 */
 const LEGACY_DEFAULTS: Array<[string, number]> = [[PREFS.maxInputChars, 30000], [PREFS.timeoutMs, 60000]];
-const PREFS_VERSION = 3;
+const PREFS_VERSION = 4;
 
 /** 确保默认值已写入（不覆盖用户已设置的值） */
 export function initPrefs(): void {
@@ -23,6 +23,10 @@ export function initPrefs(): void {
     if (version < 3 && !String(Zotero.Prefs.get(PREFIX + PREFS.apiKey, true) || "").trim()) {
       if (Zotero.Prefs.get(PREFIX + PREFS.endpoint, true) === LEGACY_SERVICE.endpoint) Zotero.Prefs.set(PREFIX + PREFS.endpoint, RELAY.endpoint, true);
       if (Zotero.Prefs.get(PREFIX + PREFS.model, true) === LEGACY_SERVICE.model) Zotero.Prefs.set(PREFIX + PREFS.model, RELAY.model, true);
+    }
+    // 关注点条数仍是旧默认值 6 的改为自动
+    if (version < 4 && Number(Zotero.Prefs.get(PREFIX + PREFS.highlightCount, true)) === 6) {
+      Zotero.Prefs.set(PREFIX + PREFS.highlightCount, 0, true);
     }
     Zotero.Prefs.set(PREFIX + PREFS.prefsVersion, PREFS_VERSION, true);
   }
@@ -42,7 +46,7 @@ export function getConfig(): LLMConfig {
     language: (getPref(PREFS.language) === "en" ? "en" : "zh") as "zh" | "en",
     maxInputChars: Number(getPref(PREFS.maxInputChars)) || Number(DEFAULT_PREFS[PREFS.maxInputChars]),
     timeoutMs: Number(getPref(PREFS.timeoutMs)) || Number(DEFAULT_PREFS[PREFS.timeoutMs]),
-    highlightCount: Number(getPref(PREFS.highlightCount)) || Number(DEFAULT_PREFS[PREFS.highlightCount]),
+    highlightCount: Math.max(0, Number(getPref(PREFS.highlightCount)) || 0),
   };
 }
 

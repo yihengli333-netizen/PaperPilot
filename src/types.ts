@@ -138,5 +138,6 @@ export const DEFAULT_PREFS: Record<string, string | number | boolean> = {
   [PREFS.maxInputChars]: 100000,
   [PREFS.timeoutMs]: 600000,
   [PREFS.autoAnalyze]: false,
-  [PREFS.highlightCount]: 6,
+  /** 0 = 自动（按论文篇幅和内容决定） */
+  [PREFS.highlightCount]: 0,
 };

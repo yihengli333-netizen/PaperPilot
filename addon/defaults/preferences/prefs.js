@@ -5,4 +5,4 @@ pref("extensions.zotero.paperpilot.language", "zh");
 pref("extensions.zotero.paperpilot.maxInputChars", 100000);
 pref("extensions.zotero.paperpilot.timeoutMs", 600000);
 pref("extensions.zotero.paperpilot.autoAnalyze", false);
-pref("extensions.zotero.paperpilot.highlightCount", 6);
+pref("extensions.zotero.paperpilot.highlightCount", 0);

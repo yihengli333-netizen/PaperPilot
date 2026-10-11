@@ -137,7 +137,7 @@ check("弯引号与直引号", m.verifyQuote(pdfText, 'on the "held-out" set') =
 check("连字符有无均可", m.verifyQuote(pdfText, "uses a fixedpoint solver") === true);
 const fuzzy = m.matchQuote(pdfText, "We show that this method reduces error by 12% on the held-out set");
 check("个别字词差异 → 模糊命中", fuzzy && !fuzzy.exact && fuzzy.similarity >= 0.9, JSON.stringify(fuzzy));
-check("模糊命中返回原文片段", fuzzy && fuzzy.text.includes("meth- od reduces error by 12%") && m.verifyQuote(pdfText, fuzzy.text), fuzzy && fuzzy.text);
+check("模糊命中返回原文片段", fuzzy && fuzzy.text.includes("the method reduces error by 12%") && m.verifyQuote(pdfText, fuzzy.text), fuzzy && fuzzy.text);
 check("改动过多不接受", m.matchQuote(pdfText, "We prove that the approach increases accuracy by 40% on all sets.") === null);
 check("关键句被改写的结尾不接受", m.matchQuote("this is a sufficiently long original prefix and true ending", "this is a sufficiently long original prefix and invented ending") === null);
 check("短引用不做模糊匹配", m.matchQuote(pdfText, "fixed-pont solver") === null);

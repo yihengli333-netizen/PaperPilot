@@ -37,7 +37,8 @@
     [PREFS.maxInputChars]: 1e5,
     [PREFS.timeoutMs]: 6e5,
     [PREFS.autoAnalyze]: false,
-    [PREFS.highlightCount]: 6
+    /** 0 = 自动（按论文篇幅和内容决定） */
+    [PREFS.highlightCount]: 0
   };
 
   // src/settings.ts
@@ -57,7 +58,7 @@
     id("pp-language").value = g("language", "zh") === "en" ? "en" : "zh";
     id("pp-maxchars").value = g("maxInputChars", 1e5);
     id("pp-timeout").value = Math.floor(Number(g("timeoutMs", 6e5)) / 1e3);
-    id("pp-highlights").value = g("highlightCount", 6);
+    id("pp-highlights").value = String(g("highlightCount", 0));
     id("pp-auto").checked = g("autoAnalyze", false) === true;
   }
   function save() {
@@ -67,7 +68,7 @@
     Zotero.Prefs.set(P + "language", id("pp-language").value, true);
     Zotero.Prefs.set(P + "maxInputChars", Number(id("pp-maxchars").value) || 1e5, true);
     Zotero.Prefs.set(P + "timeoutMs", (Number(id("pp-timeout").value) || 600) * 1e3, true);
-    Zotero.Prefs.set(P + "highlightCount", Number(id("pp-highlights").value) || 6, true);
+    Zotero.Prefs.set(P + "highlightCount", Number(id("pp-highlights").value) || 0, true);
     Zotero.Prefs.set(P + "autoAnalyze", !!id("pp-auto").checked, true);
   }
   function status(msg, ok) {

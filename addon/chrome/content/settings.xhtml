@@ -62,8 +62,17 @@
       </div>
       <div class="row">
         <label for="pp-highlights">关注点条数</label>
-        <input type="number" id="pp-highlights" min="3" max="10" />
+        <select id="pp-highlights">
+          <option value="0">自动（按论文篇幅和内容判断）</option>
+          <option value="3">3</option>
+          <option value="5">5</option>
+          <option value="6">6</option>
+          <option value="8">8</option>
+          <option value="10">10</option>
+          <option value="12">12</option>
+        </select>
       </div>
+      <div class="hint">自动：短论文约 3-5 条，中等篇幅 5-8 条，长论文 7-12 条，由模型按贡献点和实验数量决定。</div>
       <div class="row">
         <label for="pp-maxchars">正文最大字符</label>
         <input type="number" id="pp-maxchars" min="6000" max="400000" step="1000" />

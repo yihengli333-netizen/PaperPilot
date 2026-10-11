@@ -1,10 +1,10 @@
-# PaperPilot — Zotero 论文导读插件（v0.6.1）
+# PaperPilot — Zotero 论文导读插件（v0.7.0）
 
 打开一篇论文，PaperPilot 可以导出一份自带彩色高亮、中文分析批注和阅读说明的独立 PDF。原始 PDF 保留。
 
 PaperPilot 也能把**通过原文校验的重点标在 PDF 上**（彩色高亮 + 批注）、给出**可点击的导读索引**、生成**摘要思维导图**，并保存一份**导读笔记**。
 
-安装包：[GitHub Releases](https://github.com/yihengli333-netizen/PaperPilot/releases)。本版功能、修复和验证见 [0.6.1 发布说明](docs/releases/0.6.1.md)。
+安装包：[GitHub Releases](https://github.com/yihengli333-netizen/PaperPilot/releases)。本版功能、修复和验证见 [0.7.0 发布说明](docs/releases/0.7.0.md)。
 
 ---
 
@@ -14,11 +14,11 @@ PaperPilot 也能把**通过原文校验的重点标在 PDF 上**（彩色高亮
 
 新文件作为论文的独立附件保存。点击高亮/下划线查看中文分析，PDF 书签可跳到各要点；最后一页是导图。原 PDF 和原页码保留，已有文库批注也会带入副本。计数只表示本次新增标注，未校验或无法可靠定位的引用会跳过。
 
-增强导出需要 Python 及 `tools/requirements.txt` 中的 pypdf 6.18.1、reportlab 5.0.1；在设置中填写该解释器的完整路径。安装依赖：`python -m pip install -r tools/requirements.txt`。本机已配置专用环境；其他电脑必须自行配置。开发运行完整测试也使用这个环境，可通过 `PAPERPILOT_PYTHON` 指定。
+增强导出在插件内部完成（pdf-lib），**不再需要安装 Python**。
 
-0.6.1 实现句子高亮、建议片段下划线、中文批注、书签和导图附页。没有实现段落自动分框、关键词级下划线或中英译文语义对齐，因此不再显示“三层标注完成”。导图来自 AI 总结，不代表所有节点均已验证；阅读说明会标明分析范围。
+已实现句子高亮、建议片段下划线、中文批注、书签和导图附页。没有实现段落自动分框、关键词级下划线或中英译文语义对齐，因此不再显示“三层标注完成”。导图来自 AI 总结，不代表所有节点均已验证；阅读说明会标明分析范围。
 
-不需要导图附页时，可使用以下普通导出（无需 Python）：
+不需要导图附页时，也可使用普通导出：
 
 1. 选中论文，在右侧 **PaperPilot** 点击 **生成总结**（已有总结可跳过）。
 2. 点击 **📄 导出带批注 PDF**，等待面板显示“批注 PDF 已生成”。
@@ -32,7 +32,7 @@ PaperPilot 也能把**通过原文校验的重点标在 PDF 上**（彩色高亮
 | 功能 | 效果 |
 |---|---|
 | 🖍️ **PDF 彩色高亮** | 把 AI 结论直接标在 PDF 对应位置，按类别分色 |
-| 💬 **页边批注** | 每条高亮带文字评论（类别 + 一句话解释 + 原文片段） |
+| 💬 **页边批注** | 每条高亮带文字评论（类别 + 一句话解释 + 原文片段）；每个类别可有 1 条主结论和最多 2 条补充证据 |
 | 🗂️ **导读索引** | 条目面板按类别分组，点击即跳转 PDF 对应页 |
 | 🗺️ **思维导图** | 按研究问题、方法、结果、局限和建议分组，保留完整摘要并换行，存为 SVG + PNG 附件 |
 | 💾 **导读笔记** | 层级大纲 + 颜色图例 + 分组索引 + 思维导图指引 |
@@ -52,19 +52,25 @@ PaperPilot 也能把**通过原文校验的重点标在 PDF 上**（彩色高亮
 ## 2. 安装
 
 1. Zotero 7–10 → 菜单 **工具 → 插件/附加组件**
-2. 从 [最新 Release](https://github.com/yihengli333-netizen/PaperPilot/releases/latest) 下载 `paperpilot-0.6.1.xpi`，齿轮 → **Install Add-on From File…** → 选该文件
+2. 从 [最新 Release](https://github.com/yihengli333-netizen/PaperPilot/releases/latest) 下载 `paperpilot-0.7.0.xpi`，齿轮 → **Install Add-on From File…** → 选该文件
 3. 重启 Zotero
 
-更新使用下载的 XPI；现有 API 端点、密钥、模型设置继续保留。Zotero 10 强制要求 `update_url`，因此使用保留域名 `https://paperpilot.invalid/updates.json` 作为占位；目前没有在线更新服务，检查在线更新可能提示失败。自动化 API 契约验证基于 Zotero 10.0.2，其他版本仍需实际验收。
+从 0.7.0 起支持自动更新：Zotero 会检查 GitHub 最新 Release 中的 `updates.json`。0.6.x 用户需要手动安装一次 0.7.0，之后即可在线更新。现有 API 端点、密钥、模型设置继续保留。自动化 API 契约验证基于 Zotero 10.0.2，其他版本仍需实际验收。
 
 ## 3. 配置（首次必做）
 
-**设置 → PaperPilot** 填写 API 端点、密钥、模型，点 **测试连接**。
+默认使用 **CCG API 中转站**（`https://ccg-cli.online/v1/chat/completions`），端点和模型已预设，只需填密钥：
+
+1. **设置 → PaperPilot** → 点 **获取密钥**，在 CCG API 控制台创建令牌并复制。
+2. 粘贴到 **API 密钥**，点 **测试连接**。
+3. 想换模型时在 **推荐模型** 中选择：默认 `gpt-6.1-sol`、性价比 `gpt-6-luna`、中文撰写 `qwen3.8-flash`、最高强度 `claude-opus-5.5`；也可点 **获取可用模型** 查看该密钥能用的全部模型。
+
+也可以改用其他 OpenAI 兼容服务，点 **恢复默认** 可切回中转站：
 
 | 项目 | 示例 |
 |---|---|
-| API 端点 | `https://api.openai.com/v1/chat/completions`（OpenAI 兼容即可） |
-| 模型 | `gpt-4o-mini` / `deepseek-chat` / `qwen-plus` |
+| API 端点 | `https://ccg-cli.online/v1/chat/completions`（默认），或其他 OpenAI 兼容接口 |
+| 模型 | `gpt-6.1-sol`（默认），或该服务提供的其他模型 |
 | 本地模型 | 端点 `http://localhost:11434/v1/chat/completions`（Ollama） |
 
 ## 4. 使用流程
@@ -73,7 +79,7 @@ PaperPilot 也能把**通过原文校验的重点标在 PDF 上**（彩色高亮
 2. 点击 **生成总结**（或开启"自动分析"）→ 生成结论 + 导读索引
 3. 按需点击：
    - **🖍️ 在 Zotero 中标注** → 自动打开 PDF 并等待加载，只写入能找到真实坐标的引用。提示会列出新增、已有、跳过及失败数量
-   - **🗂️ 导读索引** → 点任意条目跳转对应页
+   - **🗂️ 导读索引** → 点任意条目，按逐字坐标跳到原句所在位置（失败时跳页并搜索原句开头）
    - **🗺️ 思维导图** → 生成 SVG + PNG 附件（双击附件查看）
    - **💾 保存导读** → 生成条目笔记；已经生成的导图会显示为可点击的附件链接
    - **🧹 清除本插件批注** → 删除带 PaperPilot 标签及批注前缀的文库批注；已导出的 PDF 不受影响
@@ -90,6 +96,8 @@ PaperPilot 也能把**通过原文校验的重点标在 PDF 上**（彩色高亮
 |---|---|
 | **彩色高亮用 Zotero 原生注释** | 稳定、可搜索、可在侧栏筛选，不破坏 PDF 文件本身（注释独立存储） |
 | **只用真实文字坐标** | 等待 Reader 加载，整段匹配原文，使用字符矩形；无坐标或位置不唯一时跳过，保留 📍 搜索入口 |
+| **引用以原文为准** | 匹配时忽略换行连字符、连字（ﬁ）、引号样式；模型改了个别字词（相似度 ≥ 90%）时替换为原文片段并标注“已按原文校正”，不足则跳过 |
+| **长文按章节压缩** | 超出上限时先略去参考文献、致谢、附录，再按章节重要性分配字数，方法和实验不会被整段截掉 |
 | **标签与批注前缀共同识别** | 新注释带 PaperPilot 标签及 `[PP·类别]` 前缀；仅手写同样前缀的笔记不会被当作插件结果删除 |
 | **思维导图自绘 SVG** | 零外部依赖、系统字体、中文无乱码；同时导出 SVG（矢量）与 PNG（位图） |
 | **导读为 HTML 笔记** | 层级大纲 + 内嵌色块，保留"我的理解与疑问"书写区 |
@@ -106,7 +114,8 @@ PaperPilot 也能把**通过原文校验的重点标在 PDF 上**（彩色高亮
 - 需 Zotero **7.0+**
 - 扫描件（无文本层）不支持高亮定位，会明确提示
 - Reader 不提供字符坐标时跳过高亮；不估算页码或矩形，不做图表/公式独立解析
-- 跨页引用、找不到全文匹配或没有可确定位置的引用会跳过，请使用 📍 搜索核对
+- 跨页引用、与原文相似度不足 90% 或没有可确定位置的引用会跳过，请使用 📍 搜索核对
+- 章节识别基于常见英文/中文标题（Abstract、Method、Experiments、参考文献等）；识别不到章节结构时退回保留首尾的截断
 - 思维导图是已有摘要的分类概览，并非完整章节解析；独立 PDF 需先创建父文献条目才能挂载导图附件
 - SVG/PNG 的实际显示依赖 Zotero 图像渲染；PNG 失败时保留成功的 SVG 并分别显示结果
 
@@ -114,18 +123,19 @@ PaperPilot 也能把**通过原文校验的重点标在 PDF 上**（彩色高亮
 
 ```bash
 npm ci                    # 按锁文件安装依赖
-python -m pip install -r tools/requirements.txt
 npm test                  # 类型检查、构建、全部测试
-npm run release           # 测试 + 打包 + 核对当前版本 XPI
+npm run release           # 测试 + 打包 + 核对当前版本 XPI，并生成 dist/updates.json
 ```
 
-开发依赖：esbuild 0.28.2、TypeScript 7.0.2，插件没有 npm 运行时依赖。Node 需 22.22.0+，本次验证使用 24.19.0。打包需要 Python 3；脚本自动找到本机 managed Python 3.13.12，也可通过 `PAPERPILOT_PYTHON` 指定解释器。Windows 不会调用 Microsoft Store 的 Python 占位入口。
+开发依赖：esbuild 0.28.2、TypeScript 7.0.2；运行时依赖 pdf-lib 1.17.1（打包进 index.js）。Node 需 22.22.0+，本次验证使用 24.19.0。打包和校验脚本需要 Python 3（仅标准库）；脚本自动查找解释器，也可通过 `PAPERPILOT_PYTHON` 指定。Windows 不会调用 Microsoft Store 的 Python 占位入口。
 
-测试包括 27 项纯函数、14 项集成冒烟、24 项导图/笔记测试、33 项修复回归、7 项 Python PDF 测试以及 `regressions.mjs`。测试执行 Zotero 原版注册器和标注序列化代码，并用隔离数据层验证失败保护；不向真实文库写入，也不调用模型服务。
+发布时把 `dist/paperpilot-<版本>.xpi` 和 `dist/updates.json` 一起上传到 tag 为 `v<版本>` 的 Release，自动更新才会生效。
+
+测试包括 56 项纯函数、14 项集成冒烟、24 项导图/笔记测试、51 项修复回归、8 项 PDF 写入测试以及 `regressions.mjs`。测试执行 Zotero 原版注册器和标注序列化代码，并用隔离数据层验证失败保护；不向真实文库写入，也不调用模型服务。
 
 项目 `.npmrc` 使用 npm 官方源，解决默认镜像的漏洞检查接口返回 404 的问题；仅允许 esbuild 0.28.2 的必要安装脚本。
 
-新增模块：`geo.ts`（坐标定位）、`annotate.ts`（高亮写入/分色/清除）、`mindmap.ts`（思维导图）、`note.ts`（导读笔记）。
+主要模块：`text.ts`（引用规范化与模糊匹配）、`geo.ts`（坐标定位）、`annotate.ts`（高亮写入/分色/清除）、`pdf-writer.ts` / `enhanced-export.ts`（增强批注 PDF）、`mindmap.ts`（思维导图）、`note.ts`（导读笔记）。
 
 ## 9. 桌面验收清单（自动化测试不替代这些实际操作）
 

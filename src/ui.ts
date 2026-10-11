@@ -6,8 +6,8 @@ import { copyToClipboard, gotoLocation, toast, ensureReader } from "./nav";
 import { getCache, makeKey } from "./store";
 import { isConfigured } from "./prefs";
 import { exportAnnotatedPDF } from "./pdf-export";
-import { annotatePDFAdvanced } from "./python_bridge";
-import { ADDON_ID } from "./types";
+import { annotatePDFAdvanced } from "./enhanced-export";
+import { ADDON_ID, allFindings } from "./types";
 import type { SummaryResult } from "./types";
 
 const operationState = new Map<number,{message:string; pdfID?:number;path?:string;svg?:string;busy?:boolean}>();
@@ -61,6 +61,8 @@ const STYLE = `
 .pp-note{background:#fffbe6;border:1px solid #ffe58f;padding:6px 8px;border-radius:3px;margin:8px 0;color:#8a6d00}
 .pp-empty{color:#888;font-style:italic}
 .pp-quote{color:#555;font-style:italic}
+.pp-ev{border-left:2px solid #e6e6e6;padding:0 0 0 8px;margin:4px 0 0 4px}
+.pp-fixed{color:#777;font-size:10px;border:1px solid #ddd;border-radius:3px;padding:0 3px;margin-left:4px}
 .pp-legend{display:flex;flex-wrap:wrap;gap:8px;margin:6px 0 10px}
 .pp-lg{display:inline-flex;align-items:center;font-size:11px;color:#444}
 .pp-lg i{display:inline-block;width:11px;height:11px;border-radius:3px;margin-right:4px}
@@ -107,21 +109,34 @@ function addResultButtons(container: HTMLElement) {
   ]);
 }
 
+function jumpHTML(f: any): string {
+  return f.page || f.quote
+    ? `<span class="pp-link" data-pp-jump="1" data-page="${f.page || 0}" data-quote="${esc(
+        (f.quote || "").slice(0, 160)
+      )}">📍 ${esc(f.location || "跳转")}</span>`
+    : "";
+}
+
+function quoteHTML(f: any): string {
+  if (!f.quote) return "";
+  const fixed = f.corrected ? ' <span class="pp-fixed" title="模型引用与原文有个别字词差异，已替换为原文">已按原文校正</span>' : "";
+  return `<span class="pp-quote">“${esc(f.quote.slice(0, 80))}”</span>${fixed}`;
+}
+
 function findingHTML(label: string, f: any): string {
   if (!f || (!f.summary && !f.quote)) {
     return `<div class="pp-item"><div class="pp-label">${esc(label)}</div><div class="pp-empty">未在正文中找到</div></div>`;
   }
   const badge = f.verified ? "" : ' <span class="pp-flag">⚠️片段未校验</span>';
-  const jump =
-    f.page || f.quote
-      ? `<span class="pp-link" data-pp-jump="1" data-page="${f.page || 0}" data-quote="${esc(
-          (f.quote || "").slice(0, 160)
-        )}">📍 ${esc(f.location || "跳转")}</span>`
-      : "";
+  const evidence = (f.evidence || []).map((e: any) => `<div class="pp-ev">
+      <div class="pp-text">${esc(e.summary)}${e.verified ? "" : ' <span class="pp-flag">⚠️</span>'}</div>
+      <div class="pp-meta">${jumpHTML(e)}${quoteHTML(e)}</div>
+    </div>`).join("");
   return `<div class="pp-item">
     <div class="pp-label">${esc(label)}${badge}</div>
     <div class="pp-text">${esc(f.summary)}</div>
-    <div class="pp-meta">${jump}${f.quote ? `<span class="pp-quote">“${esc(f.quote.slice(0, 80))}”</span>` : ""}</div>
+    <div class="pp-meta">${jumpHTML(f)}${quoteHTML(f)}</div>
+    ${evidence}
   </div>`;
 }
 
@@ -154,10 +169,8 @@ function indexHTML(result: SummaryResult): string {
     return `<div class="pp-idx-cat"><i style="background:${c}"></i>${esc(CATEGORY_LABEL[cat])}</div>${rows}`;
   };
   const parts = [
-    group("research_question", result.research_question?.summary ? [result.research_question] : []),
-    group("method", result.method?.summary ? [result.method] : []),
-    group("results", result.results?.summary ? [result.results] : []),
-    group("limitations", result.limitations?.summary ? [result.limitations] : []),
+    ...(["research_question", "method", "results", "limitations"] as const).map((cat) =>
+      group(cat, result[cat]?.summary ? [result[cat], ...(result[cat].evidence || [])] : [])),
     group("highlight", result.highlights || []),
   ].filter(Boolean);
   if (!parts.length) return "";
@@ -185,13 +198,7 @@ function summaryHTML(result: SummaryResult, fromCache: boolean): string {
   const note = result.meta?.note
     ? `<div class="pp-note">${esc(result.meta.note)}</div>`
     : "";
-  const unverified = [
-    result.research_question,
-    result.method,
-    result.results,
-    result.limitations,
-    ...(result.highlights || []),
-  ].filter((f: any) => f && !f.verified).length;
+  const unverified = allFindings(result).filter(({ finding }) => !finding.verified).length;
   const warn =
     unverified > 0
       ? `<div class="pp-note">有 ${unverified} 条引用片段未在原文中匹配到（已标 ⚠️），请点击 📍 自行核对。</div>`
@@ -221,9 +228,15 @@ async function runAnalyze(container: HTMLElement, item: any, force: boolean, aut
     bind(container, item, null);
     return;
   }
-  html(container, `${STYLE}<div class="pp-wrap"><div class="pp-empty">正在分析论文…（首次约需 10-60 秒）</div></div>`);
+  html(container, `${STYLE}<div class="pp-wrap"><div class="pp-empty">正在分析论文…（视论文长度和模型约需 30 秒到 3 分钟）</div></div>`);
   try {
-    const { result, fromCache } = await analyzeItem(item, { force });
+    const { result, fromCache } = await analyzeItem(item, {
+      force,
+      onProgress: (msg) => {
+        const box = container.querySelector(".pp-empty");
+        if (box) box.textContent = msg;
+      },
+    });
     if (!container.isConnected) return;
     html(container, summaryHTML(result, fromCache));
     addResultButtons(container);

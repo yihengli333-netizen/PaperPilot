@@ -1,4 +1,5 @@
-import type { SummaryResult } from "./types";
+import { getConfig } from "./prefs";
+import { PROMPT_VERSION, type LLMConfig, type SummaryResult } from "./types";
 
 /** 缓存：JSON 文件，存放在 Zotero 数据目录下 */
 const FILE_NAME = "paperpilot-cache.json";
@@ -56,18 +57,22 @@ async function persist(): Promise<void> {
   }
 }
 
-/** 缓存键：条目 key + 文件大小 + 修改时间（文件更新后自动失效） */
-export async function makeKey(item: any): Promise<string> {
+/**
+ * 缓存键：条目 key + 文件大小 + 修改时间 + 模型 + 输出语言 + 提示词版本。
+ * 文件更新、切换模型或语言、升级分析逻辑后都会重新分析，而不是返回旧结果。
+ */
+export async function makeKey(item: any, cfg: Pick<LLMConfig, "model" | "language"> = getConfig()): Promise<string> {
+  const suffix = `${cfg.model}:${cfg.language}:p${PROMPT_VERSION}`;
   try {
     const path = await item.getFilePathAsync();
     if (path) {
       const stat = await IOUtils.stat(path);
-      return `v2:${item.key}:${stat.size}:${stat.lastModified}`;
+      return `v3:${item.key}:${stat.size}:${stat.lastModified}:${suffix}`;
     }
   } catch (e) {
     /* 非文件附件 */
   }
-  return `${item.key}:v${item.version}`;
+  return `v3:${item.key}:v${item.version}:${suffix}`;
 }
 
 export async function getCache(key: string): Promise<SummaryResult | null> {

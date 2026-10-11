@@ -23,21 +23,32 @@
     <fieldset>
       <div class="row">
         <label for="pp-endpoint">API 端点</label>
-        <input type="text" id="pp-endpoint" placeholder="https://api.openai.com/v1/chat/completions" />
+        <input type="text" id="pp-endpoint" placeholder="https://ccg-cli.online/v1/chat/completions" />
       </div>
-      <div class="hint">OpenAI 兼容接口即可。Ollama 示例：http://localhost:11434/v1/chat/completions</div>
+      <div class="hint">默认使用 CCG API 中转站，一般无需修改。也可填其他 OpenAI 兼容接口。<button id="pp-default-service">恢复默认</button></div>
 
       <div class="row">
         <label for="pp-apiKey">API 密钥</label>
         <input type="password" id="pp-apiKey" placeholder="sk-..." />
       </div>
-      <div class="hint">密钥保存在本机 Zotero 配置中，不会写入笔记或同步内容。</div>
+      <div class="hint">在 CCG API 控制台创建令牌后粘贴到这里。<button id="pp-get-key">获取密钥</button><br/>密钥保存在本机 Zotero 配置中，不会写入笔记或同步内容。</div>
 
       <div class="row">
-        <label for="pp-model">模型</label>
-        <input type="text" id="pp-model" placeholder="gpt-4o-mini" />
+        <label for="pp-model-preset">推荐模型</label>
+        <select id="pp-model-preset">
+          <option value="gpt-6.1-sol">默认 · gpt-6.1-sol</option>
+          <option value="gpt-6-luna">性价比 · gpt-6-luna</option>
+          <option value="qwen3.8-flash">中文撰写 · qwen3.8-flash</option>
+          <option value="claude-opus-5.5">最高强度 · claude-opus-5.5</option>
+          <option value="">自定义（在下方填写）</option>
+        </select>
       </div>
-      <div class="hint">推荐低成本模型：gpt-4o-mini、deepseek-chat、qwen-plus 等。</div>
+      <div class="row">
+        <label for="pp-model">模型</label>
+        <input type="text" id="pp-model" list="pp-model-list" placeholder="gpt-6.1-sol" />
+        <datalist id="pp-model-list"></datalist>
+      </div>
+      <div class="hint">选择推荐模型会自动填入；也可直接填写其他模型。填好密钥后可读取该密钥能用的全部模型。<button id="pp-models">获取可用模型</button></div>
     </fieldset>
 
     <h2>输出与行为</h2>
@@ -51,13 +62,22 @@
       </div>
       <div class="row">
         <label for="pp-highlights">关注点条数</label>
-        <input type="number" id="pp-highlights" min="3" max="10" />
+        <select id="pp-highlights">
+          <option value="0">自动（按论文篇幅和内容判断）</option>
+          <option value="3">3</option>
+          <option value="5">5</option>
+          <option value="6">6</option>
+          <option value="8">8</option>
+          <option value="10">10</option>
+          <option value="12">12</option>
+        </select>
       </div>
+      <div class="hint">自动：短论文约 3-5 条，中等篇幅 5-8 条，长论文 7-12 条，由模型按贡献点和实验数量决定。</div>
       <div class="row">
         <label for="pp-maxchars">正文最大字符</label>
-        <input type="number" id="pp-maxchars" min="6000" max="120000" step="1000" />
+        <input type="number" id="pp-maxchars" min="6000" max="400000" step="1000" />
       </div>
-      <div class="hint">超长论文会被截断（保留开头与结尾），结果中会给出提示。</div>
+      <div class="hint">超出时先略去参考文献、致谢和附录，再按章节重要性压缩（方法、结果、结论优先），结果中会给出提示。上限应小于模型的上下文长度。</div>
       <div class="row">
         <label for="pp-timeout">超时（秒）</label>
         <input type="number" id="pp-timeout" min="10" max="600" />
@@ -70,13 +90,6 @@
     </fieldset>
 
     <h2>维护</h2>
-    <fieldset>
-      <div class="row">
-        <label for="pp-python">增强 PDF 的 Python</label>
-        <input type="text" id="pp-python" placeholder="选择已安装 pypdf、reportlab 的 python.exe 完整路径" />
-      </div>
-      <div class="hint">仅“导出增强批注 PDF（含导图）”需要。本机已配置时无需修改；普通导出和独立导图无需 Python。</div>
-    </fieldset>
     <fieldset>
       <button id="pp-save">保存设置</button>
       <button id="pp-test">测试连接</button>

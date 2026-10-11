@@ -1,8 +1,9 @@
+import { locateQuote } from "./geo";
+import { dehyphenate } from "./text";
 /**
  * 定位与跳转。
- * 设计决策：不追求精确坐标高亮（成本高、易失败）。
- * 主路径：跳转到页码；辅助：在 PDF 中搜索原文片段（内部 API，失败静默）；
- * 兜底：把片段复制到剪贴板 + 弹窗提示，用户扫一眼即可找到。
+ * 主路径：用阅读器的逐字坐标找到原句，滚动到所在位置（与高亮使用同一套定位）；
+ * 后备：跳到页码并搜索原句开头；兜底：把片段复制到剪贴板 + 弹窗提示。
  */
 
 export function findReader(itemID: number): any {
@@ -37,15 +38,23 @@ export async function ensureReader(itemID: number, timeoutMs = 30000): Promise<a
   } finally { expired = true; if (timer) clearTimeout(timer); }
 }
 
-async function navigateReader(reader: any, pageIndex: number): Promise<boolean> {
+async function navigateReader(reader: any, pageIndex: number, position?: { pageIndex: number; rects: number[][] }): Promise<boolean> {
   const candidates: any[] = [reader];
   const internal = reader._internalReader || reader._reader || null;
   if (internal) candidates.push(internal);
+  // 带坐标时滚动到原句所在的行；对象需克隆进阅读器的 iframe，否则跨沙箱传递会失败
+  let location: any = position ? { position } : { pageIndex };
+  try {
+    const win = reader._iframeWindow || internal?._primaryView?._iframeWindow;
+    if (win && typeof Components !== "undefined" && Components.utils?.cloneInto) location = Components.utils.cloneInto(location, win);
+  } catch (e) {
+    /* use the plain object */
+  }
 
   for (const target of candidates) {
     try {
       if (typeof target.navigate === "function") {
-        await target.navigate({ pageIndex });
+        await target.navigate(location);
         return true;
       }
     } catch (e) {
@@ -134,43 +143,57 @@ export interface GotoOptions {
 /**
  * 跳到目标位置。返回是否成功跳转（不含搜索高亮）。
  */
+/** 搜索兜底用的短查询：长句、断词连字符、公式都会让阅读器搜索失败，只取开头一段完整的词 */
+export function searchQuery(quote: string): string {
+  const clean = dehyphenate(quote.replace(/\s+/g, " ").trim());
+  if (clean.length <= 60) return clean;
+  const cut = clean.slice(0, 60);
+  const space = cut.lastIndexOf(" ");
+  return space > 20 ? cut.slice(0, space) : cut;
+}
+
+/**
+ * 跳到引用位置。优先用与高亮相同的逐字坐标定位，直接滚动到原句所在的行；
+ * 坐标定位失败时才退回“跳页 + 搜索开头片段”。原文片段始终复制到剪贴板。
+ */
 export async function gotoLocation(opts: GotoOptions): Promise<boolean> {
   const { itemID, page, quote, location } = opts;
   copyToClipboard(quote);
   const pageIndex = Math.max(0, (page || 1) - 1);
 
-  let reader = findReader(itemID);
-  if (!reader) {
-    try {
-      await Zotero.Reader.open(itemID, { pageIndex });
-      reader = findReader(itemID);
-    } catch (e) {
-      reader = null;
-    }
-  } else {
-    if (page) await navigateReader(reader, pageIndex);
-    try {
-      const win = Zotero.getMainWindow();
-      if (win && reader.tabID && win.Zotero_Tabs?.select) {
-        win.Zotero_Tabs.select(reader.tabID);
-      }
-    } catch (e) {
-      /* ignore */
-    }
+  let reader: any = null;
+  try {
+    reader = await ensureReader(itemID);
+  } catch (e) {
+    reader = findReader(itemID);
   }
-
   if (!reader) {
-    copyToClipboard(quote);
     toast("PaperPilot", `未能打开 PDF，原文片段已复制：${quote.slice(0, 60)}…`);
     return false;
   }
-
-  const highlighted = await tryFind(reader, quote);
-  if (highlighted) {
-    toast("PaperPilot", `已定位：${location || "目标页"}`);
-  } else {
-    copyToClipboard(quote);
-    toast("PaperPilot", `${location || "目标页"} · 片段已复制到剪贴板`);
+  try {
+    const win = Zotero.getMainWindow();
+    if (win && reader.tabID && win.Zotero_Tabs?.select) win.Zotero_Tabs.select(reader.tabID);
+  } catch (e) {
+    /* ignore */
   }
+
+  if (quote) {
+    try {
+      const loc = await locateQuote({ reader }, quote, page);
+      if (loc && await navigateReader(reader, loc.pageIndex, { pageIndex: loc.pageIndex, rects: loc.rects })) {
+        toast("PaperPilot", `已定位到第 ${loc.pageIndex + 1} 页` + (loc.partial ? "（句子跨页，已定位到其中一部分）" : ""));
+        return true;
+      }
+    } catch (e) {
+      Zotero.debug("[PaperPilot] 坐标定位失败: " + e);
+    }
+  }
+
+  if (page) await navigateReader(reader, pageIndex);
+  const highlighted = await tryFind(reader, searchQuery(quote));
+  toast("PaperPilot", highlighted
+    ? `${location || (page ? `第 ${page} 页` : "目标页")} · 已搜索原文开头，片段已复制`
+    : `${location || "目标页"} · 片段已复制到剪贴板，可用 Ctrl+F 搜索`);
   return true;
 }

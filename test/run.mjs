@@ -111,6 +111,61 @@ check("含四个结论", ["研究问题", "核心方法", "主要结果", "作�
 check("含关注点", md.includes("建议重点关注") && md.includes("假设"));
 check("含我的理解区块", md.includes("我的理解与疑问"));
 
+console.log("\n[7] 按章节压缩长文");
+const sec = (title, ch, n) => `${title}\n${ch.repeat(n)}\n`;
+const paper = sec("Abstract", "a", 500) + sec("1 Introduction", "i", 3000) + sec("2 Related Work", "w", 6000)
+  + sec("3 Method", "m", 8000) + sec("3.1 Encoder", "e", 2000) + sec("4 Experiments", "x", 8000)
+  + sec("5 Conclusion", "c", 800) + sec("References", "r", 9000) + sec("Appendix A", "p", 5000);
+check("识别章节（子章节并入父章节）", m.splitSections(paper).map((s) => s.kind).join(",") === "abstract,introduction,related,method,results,conclusion,references,appendix");
+const c1 = m.condenseText(paper, 40000);
+check("丢弃参考文献和附录后放得下则不截正文", c1.truncated && !c1.partial && !c1.text.includes("rrrr") && !c1.text.includes("pppp") && c1.text.includes("e".repeat(2000)));
+check("记录被丢弃的章节", c1.omitted.join(",") === "references,appendix");
+const c2 = m.condenseText(paper, 15000);
+check("总长度不超过上限", c2.text.length <= 15000, String(c2.text.length));
+check("每个保留章节都有内容", ["Abstract", "Introduction", "Related Work", "Method", "Experiments", "Conclusion"].every((h) => c2.text.includes(h)));
+check("短的高优先级章节完整保留", c2.text.includes("c".repeat(800)) && c2.text.includes("a".repeat(500)));
+check("方法与实验比相关工作分到更多", (c2.text.match(/m/g) || []).length > 2 * (c2.text.match(/w/g) || []).length);
+check("方法、实验中段不再整体丢失", (c2.text.match(/x/g) || []).length > 2000);
+check("无章节结构时退回首尾截断", m.condenseText("A".repeat(1000) + "B".repeat(1000), 400).text.includes("[...中间部分已省略...]"));
+check("中文章节标题", m.splitSections(sec("摘要", "a", 10) + sec("1 引言", "b", 10) + sec("2 方法", "c", 10) + sec("参考文献", "d", 10)).length === 4);
+
+console.log("\n[8] 引用匹配（规范化与模糊匹配）");
+const pdfText = "Our model uses a ﬁxed-point solver. We show that the meth-\nod reduces error by 12% on the “held-out” set.\nOther text follows here.";
+check("连字 ﬁ", m.verifyQuote(pdfText, "uses a fixed-point solver") === true);
+check("行末连字符断词", m.verifyQuote(pdfText, "the method reduces error by 12%") === true);
+check("弯引号与直引号", m.verifyQuote(pdfText, 'on the "held-out" set') === true);
+check("连字符有无均可", m.verifyQuote(pdfText, "uses a fixedpoint solver") === true);
+const fuzzy = m.matchQuote(pdfText, "We show that this method reduces error by 12% on the held-out set");
+check("个别字词差异 → 模糊命中", fuzzy && !fuzzy.exact && fuzzy.similarity >= 0.9, JSON.stringify(fuzzy));
+check("模糊命中返回原文片段", fuzzy && fuzzy.text.includes("the method reduces error by 12%") && m.verifyQuote(pdfText, fuzzy.text), fuzzy && fuzzy.text);
+check("改动过多不接受", m.matchQuote(pdfText, "We prove that the approach increases accuracy by 40% on all sets.") === null);
+check("关键句被改写的结尾不接受", m.matchQuote("this is a sufficiently long original prefix and true ending", "this is a sufficiently long original prefix and invented ending") === null);
+check("短引用不做模糊匹配", m.matchQuote(pdfText, "fixed-pont solver") === null);
+check("精确匹配标记为 exact", m.matchQuote(pdfText, "Other text follows")?.exact === true);
+const big = "lorem ipsum dolor sit amet ".repeat(4000) + "The quick brown fox jumps over the lazy dog near the river bank." + " consectetur adipiscing elit".repeat(4000);
+const t0 = Date.now();
+const bigHit = m.matchQuote(big, "The quick brown fox jumped over the lazy dog near the river bank.");
+check("长文模糊匹配足够快且正确", bigHit && bigHit.text.startsWith("The quick brown fox jumps") && Date.now() - t0 < 1000, `${Date.now() - t0}ms`);
+
+console.log("\n[9] 补充证据与校验");
+const withEv = m.normalizeResult({ method: { summary: "M", quote: "q1", evidence: [{ summary: "E1", quote: "q2" }, { summary: "dup", quote: "q1" }, { summary: "E3", quote: "q3" }, { summary: "E4", quote: "q4" }] } }, "m");
+check("evidence 去重且最多 2 条", withEv.method.evidence.map((e) => e.quote).join() === "q2,q3");
+check("无 evidence 时不产生空数组", !("evidence" in withEv.results));
+check("allFindings 含主结论、证据、关注点", m.allFindings({ ...withEv, highlights: [{ title: "h", quote: "x" }] }).length === 4 + 2 + 1);
+const pages = [{ index: 0, text: "Intro text only." }, { index: 1, text: "We show that the meth-\nod reduces error by 12% on the test set." }];
+const pp = m.postProcess(m.normalizeResult({
+  method: { summary: "M", location: "Page 9", quote: "We show that this method reduces the error by 12% on the test set.",
+    evidence: [{ summary: "E", location: "", quote: "an invented sentence that is not in the paper at all" }] },
+}, "m"), pages.map((p) => p.text).join("\n"), pages);
+check("模糊命中后已校验并替换为原文", pp.method.verified && pp.method.corrected && pp.method.quote.startsWith("We show that the meth"));
+check("页码按原文逐页匹配", pp.method.page === 2 && pp.method.location === "PDF 第 2 页");
+check("补充证据同样校验", pp.method.evidence[0].verified === false);
+const md2 = m.toMarkdown(pp, "t");
+check("Markdown 含补充证据", md2.includes("补充：E"));
+const cross = m.postProcess(m.normalizeResult({ method: { summary: "M", quote: "end of page one text [PDF Page 2] start of page two" } }, "m"),
+  "[PDF Page 1]\nend of page one text\n\n[PDF Page 2]\nstart of page two", undefined);
+check("跨页片段不算校验通过", cross.method.verified === false);
+
 rmSync(outfile, { force: true });
 
 console.log(`\n结果：${pass} 通过 / ${fail} 失败\n`);

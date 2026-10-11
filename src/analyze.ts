@@ -1,8 +1,9 @@
-import { callLLM, normalizeResult, truncateText, LLMError } from "./llm";
+import { callLLM, condenseText, normalizeResult, LLMError } from "./llm";
 import { parseItem, parsePage, verifyQuote } from "./parser";
 import { getConfig } from "./prefs";
 import { getCache, makeKey, setCache } from "./store";
-import type { SummaryResult } from "./types";
+import { matchQuote } from "./text";
+import { allFindings, type PageText, type SummaryResult } from "./types";
 
 export interface AnalyzeOptions {
   force?: boolean;
@@ -29,18 +30,31 @@ export function findPDFAttachment(item: any): any {
   return null;
 }
 
-/** 校验所有引用片段并解析页码 */
-export function postProcess(result: SummaryResult, fullText: string): SummaryResult {
-  const check = (f: any) => {
-    f.verified = verifyQuote(fullText, f.quote);
+const SECTION_NAMES: Record<string, string> = {
+  references: "参考文献", acknowledgements: "致谢", appendix: "附录",
+};
+
+/**
+ * 校验所有引用片段并解析页码。模型改动了个别字词的引用经模糊匹配后替换为原文片段（corrected），
+ * 之后的定位与高亮都基于原文，而不是模型的措辞。
+ */
+export function postProcess(result: SummaryResult, fullText: string, pages?: PageText[]): SummaryResult {
+  for (const { finding: f } of allFindings(result)) {
+    const match = f.quote ? matchQuote(fullText, f.quote) : null;
+    // 跨页的片段带有页码标记，不是连续原文
+    const valid = match && !/\[PDF Page \d+\]/.test(match.text) ? match : null;
+    f.verified = !!valid;
+    if (valid && !valid.exact) {
+      f.quote = valid.text;
+      f.corrected = true;
+    }
     f.page = parsePage(f.location);
-    return f;
-  };
-  result.research_question = check(result.research_question);
-  result.method = check(result.method);
-  result.results = check(result.results);
-  result.limitations = check(result.limitations);
-  result.highlights = (result.highlights || []).map(check);
+    if (pages && f.verified) {
+      const hits = pages.filter((p) => verifyQuote(p.text, f.quote));
+      f.page = hits.length === 1 ? hits[0].index + 1 : 0;
+      if (f.page) f.location = `PDF 第 ${f.page} 页`;
+    }
+  }
   return result;
 }
 
@@ -58,7 +72,7 @@ export async function analyzeItem(
     throw new LLMError("该条目没有 PDF 附件。", "no-attachment");
   }
 
-  const key = await makeKey(attachment);
+  const key = await makeKey(attachment, cfg);
   if (!opts.force) {
     const cached = await getCache(key);
     if (cached) return { result: cached, fromCache: true };
@@ -67,25 +81,23 @@ export async function analyzeItem(
   opts.onProgress?.("正在提取 PDF 文本…");
   const doc = await parseItem(attachment);
 
-  const { text: body, truncated } = truncateText(doc.fullText, cfg.maxInputChars);
+  const { text: body, partial, omitted } = condenseText(doc.fullText, cfg.maxInputChars);
 
   opts.onProgress?.("正在调用模型生成总结…");
-  const raw = await callLLM(cfg, doc.metaText, body, Number(Zotero.Prefs.get("extensions.zotero.paperpilot.highlightCount", true)) || 3, opts.onProgress);
+  const raw = await callLLM(cfg, doc.metaText, body, cfg.highlightCount, opts.onProgress);
 
-  const result = postProcess(normalizeResult(raw, cfg.model), doc.fullText);
-  if (doc.hasPageInfo) {
-    for (const f of [result.research_question,result.method,result.results,result.limitations,...result.highlights]) {
-      const pages = doc.pages.filter(p=>verifyQuote(p.text,f.quote));
-      f.page = pages.length === 1 ? pages[0].index + 1 : 0;
-      if (f.page) f.location = `PDF 第 ${f.page} 页`;
-    }
-  }
+  const result = postProcess(normalizeResult(raw, cfg.model), doc.fullText, doc.hasPageInfo ? doc.pages : undefined);
+  const findings = allFindings(result).filter(({ finding }) => finding.quote);
+  const corrected = findings.filter(({ finding }) => finding.corrected).length;
   result.meta = {
     model: cfg.model,
     createdAt: Date.now(),
-    coverage: doc.coverage === "full" && !truncated ? "full" : "partial",
+    language: cfg.language,
+    coverage: doc.coverage === "full" && !partial ? "full" : "partial",
     note: [
-      truncated ? "论文较长，已截断部分正文（建议核对结论）" : "",
+      omitted.length ? `未发送${omitted.map((k) => SECTION_NAMES[k] || k).join("、")}` : "",
+      partial ? "论文较长，部分章节只发送了开头（建议核对结论）" : "",
+      corrected ? `${corrected} 条引用与原文有个别字词差异，已替换为原文片段` : "",
       doc.hasPageInfo ? "页码依据原文片段逐页匹配；无法唯一匹配时请用搜索核对" : "未能获取逐页信息，模型页码未经校验，请用原文搜索核对",
     ]
       .filter(Boolean)
@@ -103,7 +115,9 @@ export async function analyzeItem(
 export function toMarkdown(result: SummaryResult, title: string): string {
   const line = (label: string, f: any) => {
     const flag = f.verified ? "" : " ⚠️未校验";
-    return `**${label}**：${f.summary}${flag}\n   - 位置：${f.location || "未标注"}\n   - 原文：${f.quote ? "“" + f.quote + "”" : "无"}`;
+    const extra = (f.evidence || []).map((e: any) =>
+      `\n   - 补充：${e.summary}${e.verified ? "" : " ⚠️未校验"}（${e.location || "未标注"}）“${e.quote}”`).join("");
+    return `**${label}**：${f.summary}${flag}\n   - 位置：${f.location || "未标注"}\n   - 原文：${f.quote ? "“" + f.quote + "”" : "无"}${extra}`;
   };
   const parts: string[] = [
     `# ${title}`,

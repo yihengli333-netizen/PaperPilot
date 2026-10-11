@@ -14,6 +14,10 @@ export interface Finding {
   verified?: boolean;
   /** 页码（1 基），未知为 0 */
   page?: number;
+  /** 引用经模糊匹配后已替换为原文片段 */
+  corrected?: boolean;
+  /** 同一类别的补充证据（0-2 条），结构同 Finding */
+  evidence?: Finding[];
 }
 
 export interface Highlight {
@@ -23,6 +27,7 @@ export interface Highlight {
   quote: string;
   verified?: boolean;
   page?: number;
+  corrected?: boolean;
 }
 
 export interface SummaryResult {
@@ -43,6 +48,25 @@ export interface SummaryResult {
   };
 }
 
+export const CATEGORIES = ["research_question", "method", "results", "limitations"] as const;
+export type Category = (typeof CATEGORIES)[number] | "highlight";
+
+/** 结果中的全部引用：每类主结论、其补充证据、建议关注点。高亮、校验、索引均基于此列表。 */
+export function allFindings(result: SummaryResult): Array<{ cat: Category; finding: Finding | Highlight; primary: boolean }> {
+  const out: Array<{ cat: Category; finding: Finding | Highlight; primary: boolean }> = [];
+  for (const cat of CATEGORIES) {
+    const f = result[cat];
+    if (!f) continue;
+    out.push({ cat, finding: f, primary: true });
+    for (const e of f.evidence || []) out.push({ cat, finding: e, primary: false });
+  }
+  for (const h of result.highlights || []) out.push({ cat: "highlight", finding: h, primary: true });
+  return out;
+}
+
+/** 分析提示词或结果结构变化时递增，旧缓存随之失效 */
+export const PROMPT_VERSION = 4;
+
 export interface LLMConfig {
   endpoint: string;
   apiKey: string;
@@ -50,6 +74,7 @@ export interface LLMConfig {
   language: "zh" | "en";
   maxInputChars: number;
   timeoutMs: number;
+  highlightCount: number;
 }
 
 export interface PageText {
@@ -69,6 +94,30 @@ export interface ParsedDoc {
   method: "paged" | "fulltext" | "fallback";
 }
 
+/** 默认模型服务：CCG API 中转站（OpenAI 兼容）。学生只需在控制台创建密钥并填入。 */
+export const RELAY = {
+  name: "CCG API",
+  endpoint: "https://ccg-cli.online/v1/chat/completions",
+  keyURL: "https://ccg-cli.online/ccg-console/",
+  model: "gpt-6.1-sol",
+  /** 设置页的推荐模型，第一项为默认 */
+  presets: [
+    { id: "gpt-6.1-sol", label: "默认 · gpt-6.1-sol" },
+    { id: "gpt-6-luna", label: "性价比 · gpt-6-luna" },
+    { id: "qwen3.8-flash", label: "中文撰写 · qwen3.8-flash" },
+    { id: "claude-opus-5.5", label: "最高强度 · claude-opus-5.5" },
+  ],
+} as const;
+
+/** 0.7 之前的默认服务，用于把从未配置过密钥的用户迁移到默认中转站 */
+export const LEGACY_SERVICE = { endpoint: "https://api.openai.com/v1/chat/completions", model: "gpt-4o-mini" } as const;
+
+/** OpenAI 兼容的 chat/completions 端点 → 同一服务的模型列表端点；无法推断时返回 null */
+export function modelsURL(endpoint: string): string | null {
+  const url = endpoint.trim().replace(/\/+$/, "");
+  return /\/chat\/completions$/.test(url) ? url.replace(/\/chat\/completions$/, "/models") : null;
+}
+
 export const PREFS = {
   endpoint: "endpoint",
   apiKey: "apiKey",
@@ -78,15 +127,17 @@ export const PREFS = {
   timeoutMs: "timeoutMs",
   autoAnalyze: "autoAnalyze",
   highlightCount: "highlightCount",
+  prefsVersion: "prefsVersion",
 } as const;
 
 export const DEFAULT_PREFS: Record<string, string | number | boolean> = {
-  [PREFS.endpoint]: "https://api.openai.com/v1/chat/completions",
+  [PREFS.endpoint]: RELAY.endpoint,
   [PREFS.apiKey]: "",
-  [PREFS.model]: "gpt-4o-mini",
+  [PREFS.model]: RELAY.model,
   [PREFS.language]: "zh",
-  [PREFS.maxInputChars]: 30000,
-  [PREFS.timeoutMs]: 60000,
+  [PREFS.maxInputChars]: 100000,
+  [PREFS.timeoutMs]: 600000,
   [PREFS.autoAnalyze]: false,
-  [PREFS.highlightCount]: 6,
+  /** 0 = 自动（按论文篇幅和内容决定） */
+  [PREFS.highlightCount]: 0,
 };

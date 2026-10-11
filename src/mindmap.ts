@@ -222,7 +222,7 @@ export async function svgToPng(svg: string, width: number, height: number): Prom
   }
 }
 
-function dataUrlToBytes(dataUrl: string): Uint8Array {
+export function dataUrlToBytes(dataUrl: string): Uint8Array {
   const base64 = dataUrl.split(",")[1] || "";
   const bin = globalThis.atob(base64);
   const bytes = new Uint8Array(bin.length);
